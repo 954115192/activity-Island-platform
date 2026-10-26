@@ -1,0 +1,20 @@
+{
+  "name": "activity-island-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A cross-device information and action platform centered on a lightweight desktop island.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @activity-island/desktop",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

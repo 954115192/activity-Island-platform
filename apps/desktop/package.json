@@ -1,0 +1,14 @@
+{
+  "name": "@activity-island/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node -e \"console.log('Desktop shell scaffold is ready')\"",
+    "build": "node -e \"console.log('Desktop build will be added with the shell implementation')\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@activity-island/platform-contracts": "0.1.0"
+  }
+}
