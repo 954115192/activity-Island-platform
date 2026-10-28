@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>文件传输 · Activity Island</title><link rel="stylesheet" href="style.css"></head>
+<body>
+  <main>
+    <header><div class="heading"><span class="eyebrow">ACTIVITY ISLAND / LOCALSEND</span><h1>文件传输<span id="status" class="status">启动中</span></h1></div><button id="close" class="icon-button" aria-label="收起文件传输" title="收起，传输会在后台继续">×</button></header>
+    <div id="notice" role="alert" hidden></div>
+    <section id="incoming" aria-label="接收请求" hidden></section>
+    <section id="draft-section" aria-labelledby="draft-heading">
+      <div class="section-heading"><h2 id="draft-heading">准备发送</h2><span id="draft-summary" class="muted"></span><button id="clear" class="text-button" hidden>移除文件</button></div>
+      <div id="draft" class="drop-area"></div>
+      <div class="section-heading"><h2>附近的设备</h2><button id="refresh" class="text-button">刷新</button><button id="connect-toggle" class="text-button">连接地址</button></div>
+      <form id="connect-form" hidden><label class="sr-only" for="address">设备地址</label><input id="address" placeholder="192.168.1.8:53317" required><button type="submit">连接</button></form>
+      <div id="devices" class="device-list"></div>
+      <div class="pin-field"><label for="pin">接收码 <span class="muted">（仅对方要求时填写）</span></label><input id="pin" type="password" inputmode="numeric" maxlength="12" autocomplete="off" placeholder="可选"></div>
+    </section>
+    <section id="tasks-section" aria-label="传输任务" hidden><div class="section-heading"><h2>传输记录</h2><span class="muted">收起后继续传输</span></div><div id="tasks"></div></section>
+    <footer><div class="identity"><span id="identity"></span><button id="rename" class="text-button">改名</button></div><div class="save"><button id="folder" class="text-button" title="打开接收文件夹">接收文件夹</button><span id="directory" class="muted"></span><button id="directory-change" class="text-button">更改</button></div></footer>
+    <form id="rename-form" hidden><label for="alias">本机设备名称</label><div class="form-row"><input id="alias" maxlength="60" required><button type="submit">保存</button></div></form>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

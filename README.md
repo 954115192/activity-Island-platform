@@ -54,6 +54,7 @@ tools/                    本地开发与发布工具
 - [产品定位与基础原则](docs/product-foundation.md)
 - [系统架构](docs/system-architecture.md)
 - [通知内置能力整合设计](docs/notification-integration-design.md)
+- [内置 LocalSend 文件传输](docs/localsend-file-transfer.md)
 - [功能职责与边界](docs/functional-boundaries.md)
 - [开发路线与交付计划](docs/delivery-roadmap.md)
 - [开发方法与完成标准](docs/development-method.md)

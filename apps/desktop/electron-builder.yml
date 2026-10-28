@@ -4,7 +4,7 @@
 # - appId 必须和 main.ts 里的 app.setAppUserModelId('com.activity-island.host') 保持一致，
 #   否则任务栏图标与通知分组会认不出这是同一个应用。
 # - 运行期真正需要的只有 4 个目录（见 files）。src/ scripts/ docs/ 都不进包。
-# - electron 放在 devDependencies 之后没有任何生产依赖，node_modules 不会被带进安装包。
+# - electron 放在 devDependencies；LocalSend 证书生成依赖 selfsigned 及其生产依赖随包分发。
 # - assets/ 走 extraResources 落到 resources/assets（**真实路径**）：
 #   nativeImage.createFromPath / Tray 对 asar 内的路径支持不稳定，
 #   图标是托盘与任务栏的关键，宁可放在 asar 外面。
@@ -24,6 +24,7 @@ directories:
 # 指定 electronDist 为已解压目录后，electron-builder 走的是 copyDir 分支，
 # 完全不经过那次 rename，打包就能稳定通过。
 electronDist: ../../node_modules/electron/dist
+electronVersion: 33.4.11
 
 files:
   - dist/**/*

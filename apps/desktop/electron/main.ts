@@ -20,6 +20,7 @@ import { PluginWatcher } from './plugins/plugin-watcher'
 import { ForegroundFullscreenMonitor } from './window/foreground-fullscreen'
 import { BUILTIN_NOTIFICATIONS_ID, NotificationModule } from './notifications/module'
 import { parseTestTarget } from './notifications/test-target'
+import { LocalSendService } from './transfers/service'
 import { extractZip, isZipFile, readZipEntries, zipDirectory } from './plugins/zip'
 import { allCapabilities, CAPABILITY_LABELS, checkCapability, normalizeCapabilities, WORKBENCH_TRUST_NOTICE, type WorkbenchCapability } from './workbench/capabilities'
 import { BUILTIN_WORKBENCH_ID, WorkbenchManager, type WorkbenchDescriptor } from './workbench/workbench-manager'
@@ -54,6 +55,13 @@ let pluginWatcher: PluginWatcher | null = null
 let workbenchManager: WorkbenchManager | null = null
 /** 内置通知能力：Windows 通知接管 + 本地触发接口 + 统一历史。 */
 let notificationModule: NotificationModule | null = null
+let transferService: LocalSendService | null = null
+let transferView: WebContentsView | null = null
+let transferViewLoading: Promise<void> | null = null
+let transferPanelOpen = false
+let transferDragging = false
+let transferProgressVisible = false
+let transferDragTimer: NodeJS.Timeout | null = null
 /** 独立通知历史窗口（托盘右键与中岛都能打开）。 */
 let notificationHistoryWindow: BrowserWindow | null = null
 /** 正在把开发目录同步到安装目录的时间窗，用来吞掉同步自身触发的 installed 事件。 */
@@ -506,6 +514,10 @@ function syncPluginViews(frame = animatedFrame): void {
   })
 }
 function sendLayout(mode: IslandMode, pluginMode?: PluginMode, separators: number[] = [], collapsed = false, size = { width: SMALL_DEFAULT.width, height: SMALL_DEFAULT.height }, top = islandSettings.islandTop, placements: PluginPlacement[] = [], contentSize: { width: number; height: number; top?: number } = size, clipPlugins = mode === 'expanded' || mode === 'detail', showClock = false, syncPlugins = true, bar: { overflow?: number; chipX?: number | null } = {}): void {
+  if (transferProgressVisible && (mode !== 'compact' || placements.length > 0)) {
+    transferProgressVisible = false
+    sendHost('transfers:progress', null)
+  }
   hostLayoutState = { mode, pluginMode, separators, collapsed, clipPlugins, showClock, width: size.width, height: size.height, top, contentWidth: contentSize.width, overflow: bar.overflow ?? 0, chipX: bar.chipX ?? null }
   animatedLayout = { width: contentSize.width, height: contentSize.height, top: contentSize.top ?? top, placements, clipPlugins }
   if (syncPlugins) syncPluginViews()
@@ -934,6 +946,7 @@ function applyWorkbenchSize(size: { width?: unknown; height?: unknown }): { widt
 
 async function enterCustomMode(): Promise<void> {
   if (!mainWindow || !viewManager) return
+  hideTransferPanel()
   clearAlertCarry()
   cancelCollapse()
   cancelDeferredWorkbenchHide()
@@ -991,6 +1004,8 @@ function updateHitTest(): void {
   islandState.patch({ pointerInside: inside })
   mainWindow.setIgnoreMouseEvents(!inside, { forward: true })
   sendHost('host:cursor', inside)
+  // 传输面板是用户任务；移出、拖动和普通通知均不能把接收确认或文件草稿自动收走。
+  if (transferPanelOpen || transferDragging) return
   if (inside) {
     cancelCollapse()
     const state = islandState.value
@@ -1099,6 +1114,8 @@ function scheduleTransientCollapse(): void {
  * 启动、以及切换"空闲表现/顶部位置/缩放"这类会影响静止尺寸的设置时都走这里。
  */
 async function showRest(hovered = false): Promise<void> {
+  if (transferPanelOpen || transferDragging) return
+  if (showTransferProgress()) return
   if (islandSettings.idleMode === 'collapsed') {
     await showIdle(false)
     return
@@ -1135,6 +1152,7 @@ function clearAlertCarry(): void {
 
 /** 仲裁器批准独占：真的把小岛展开到中岛/大岛。 */
 function grantFocus(request: { pluginId: string; view: 'medium' | 'large' }): boolean {
+  if (transferPanelOpen || transferDragging) return false
   const plugin = pluginManager?.get(request.pluginId)
   if (!plugin) return false
   const mode: Extract<IslandMode, 'expanded' | 'detail'> = request.view === 'large' ? 'detail' : 'expanded'
@@ -1172,6 +1190,8 @@ async function warmPluginViews(): Promise<void> {
 }
 
 async function showIdle(hovered = false): Promise<void> {
+  if (transferPanelOpen || transferDragging) return
+  if (showTransferProgress()) return
   if (!mainWindow || !viewManager) return
   // 悬停状态必须跟布局同步：否则鼠标离开后 idleHover 残留为 true，
   // 下一次悬停触发条会被 `!idleHover` 挡住（表现为"悬停没反应/慢半拍"）。
@@ -1215,6 +1235,8 @@ async function showIdle(hovered = false): Promise<void> {
 }
 
 async function showCompact(hovered = false, solo?: PluginDescriptor, soloWidth?: number): Promise<void> {
+  if (transferPanelOpen || transferDragging) return
+  if (!solo && showTransferProgress()) return
   if (!mainWindow || !viewManager) return
   cancelCollapse()
   idleHover = false
@@ -1370,6 +1392,7 @@ function clearPendingMiniReveal(): void {
   pendingMiniReveal = null
 }
 async function showActive(plugin: PluginDescriptor, mode: Extract<IslandMode, 'expanded' | 'detail'>): Promise<void> {
+  if (transferPanelOpen || transferDragging) return
   if (!mainWindow || !viewManager) return
   // 展开的是别的插件 → 提醒光圈不跟随，撤掉；展开的就是提醒归属插件 → 光圈继续跟随。
   if (alertCarry && alertCarryOwner !== plugin.manifest.id) clearAlertCarry()
@@ -2080,6 +2103,160 @@ function notificationHistoryFile(): string {
   return path.join(app.getPath('userData'), 'notifications')
 }
 
+function hideTransferPanel(): void {
+  transferPanelOpen = false
+  transferDragging = false
+  if (transferDragTimer) clearTimeout(transferDragTimer)
+  transferDragTimer = null
+  viewManager?.setTransferStage(null)
+}
+
+function showTransferProgress(): boolean {
+  if (!transferService || !viewManager || transferPanelOpen || transferDragging || alertActive) return false
+  const tasks = transferService.snapshot().sessions.filter(s => !['completed', 'failed', 'cancelled', 'rejected'].includes(s.state))
+  if (!tasks.length) {
+    if (transferProgressVisible) sendHost('transfers:progress', null)
+    transferProgressVisible = false
+    return false
+  }
+  const task = tasks[0]
+  const progress = task.total ? Math.min(100, Math.floor(task.bytes / task.total * 100)) : 0
+  const text = task.state === 'waiting' ? (task.direction === 'incoming' ? '有文件等待接收' : `等待 ${task.peer} 接受`)
+    : task.state === 'verifying' ? '正在校验文件…' : `${task.direction === 'incoming' ? '接收' : '发送'}文件 · ${progress}%`
+  clearPendingMiniReveal()
+  cancelCollapse()
+  hideWorkbench()
+  const size = { width: 260, height: 40 }
+  const stage = stageOrigin(size.width, size.height)
+  transferProgressVisible = true
+  islandState.patch({ mode: 'compact', activePluginId: null, visiblePluginIds: [], sticky: true })
+  setHitRegion(stageHitRegion(stage, 20), false)
+  sendLayout('compact', undefined, [], false, size, stage.y, [], size, false)
+  sendHost('transfers:progress', { text, progress })
+  showHost()
+  return true
+}
+
+async function openTransferPanel(): Promise<void> {
+  if (!mainWindow || !viewManager) return
+  if (transferPanelOpen && transferViewLoading) return transferViewLoading
+  const wasOpen = transferPanelOpen
+  transferPanelOpen = true
+  transferProgressVisible = false
+  sendHost('transfers:progress', null)
+  cancelCollapse()
+  arbiter.interrupt()
+  clearPendingMiniReveal()
+  clearAlertCarry()
+  sendAlert(null)
+  hideWorkbench()
+  if (wasOpen && transferView && !transferView.webContents.isDestroyed()) {
+    transferView.webContents.send('transfers:change', transferService?.snapshot())
+    return
+  }
+  const serial = ++transitionSerial
+  if (!transferView || transferView.webContents.isDestroyed()) {
+    const view = new WebContentsView({ webPreferences: {
+      preload: path.join(__dirname, 'preload', 'transfer-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false,
+    } })
+    transferView = view
+    view.setBackgroundColor('#00000000')
+    view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    view.webContents.on('will-navigate', event => event.preventDefault())
+    viewManager.adoptTransfer(view)
+    transferViewLoading = view.webContents.loadFile(path.join(appRoot(), 'modules', 'file-transfer', 'index.html'))
+    try { await transferViewLoading } finally { transferViewLoading = null }
+  }
+  if (!transferPanelOpen || serial !== transitionSerial) return
+  const size = { width: 620, height: 560 }
+  const stage = stageOrigin(size.width, size.height)
+  islandState.patch({ mode: 'custom', activePluginId: null, visiblePluginIds: [], sticky: true })
+  setHitRegion(stageHitRegion(stage, 28), false)
+  viewManager.setTransferStage(stage)
+  sendLayout('custom', undefined, [], false, size, stage.y, [], size, true)
+  transferView?.webContents.send('transfers:change', transferService?.snapshot())
+  showHost()
+}
+
+function installTransferIpc(): void {
+  const isTransferView = (event: Electron.IpcMainInvokeEvent) => transferView?.webContents === event.sender
+  const isDropSurface = (event: Electron.IpcMainEvent) => event.sender === mainWindow?.webContents
+    || event.sender === transferView?.webContents || event.sender === workbenchView?.webContents
+    || !!viewManager?.helloFor(event.sender)
+  ipcMain.on('transfers:open', event => {
+    if (event.sender === mainWindow?.webContents || (event.sender === workbenchView?.webContents && activeWorkbenchId === BUILTIN_WORKBENCH_ID)) void openTransferPanel()
+  })
+  ipcMain.on('transfers:drag', (event, entered: boolean) => {
+    if (!isDropSurface(event)) return
+    if (transferDragTimer) clearTimeout(transferDragTimer)
+    if (entered) {
+      const alreadyDragging = transferDragging
+      transferDragging = true
+      // 保持原来的原生拖放目标直至 drop；只扩大宿主外壳，防止更换 WebContents 吞掉拖放。
+      if (!transferPanelOpen && !alreadyDragging) {
+        cancelCollapse()
+        arbiter.interrupt()
+        ++transitionSerial
+        const size = { width: 420, height: 110 }
+        const stage = stageOrigin(size.width, size.height)
+        setHitRegion(stageHitRegion(stage, 28), false)
+        sendLayout('expanded', undefined, [], false, size, stage.y, [], size, false, false, false)
+        sendHost('transfers:drag-preview', true)
+        showHost()
+      }
+      transferDragTimer = setTimeout(() => { transferDragging = false; sendHost('transfers:drag-preview', false); if (!transferPanelOpen) void showRest() }, 15000)
+    } else {
+      transferDragTimer = setTimeout(() => { transferDragging = false; sendHost('transfers:drag-preview', false); if (!transferPanelOpen) void showRest() }, 250)
+    }
+  })
+  ipcMain.on('transfers:drop', (event, paths: unknown) => {
+    if (!isDropSurface(event)) return
+    if (transferDragTimer) clearTimeout(transferDragTimer)
+    transferDragging = false
+    sendHost('transfers:drag-preview', false)
+    void (async () => {
+      await openTransferPanel()
+      try { await transferService?.selectFiles(paths as string[]) }
+      catch (error) { transferView?.webContents.send('transfers:error', String((error as Error).message || error)) }
+    })()
+  })
+  ipcMain.handle('transfers:call', async (event, method: string, value: unknown) => {
+    if (!isTransferView(event) || !transferService) return { ok: false, error: '没有文件传输访问权限' }
+    try {
+      switch (method) {
+        case 'snapshot': return { ok: true, snapshot: transferService.snapshot() }
+        case 'refresh': transferService.announce(); break
+        case 'retry': await transferService.start(); break
+        case 'connect': await transferService.connect(String(value ?? '')); break
+        case 'configure': await transferService.configure({ alias: String(value ?? '') }); break
+        case 'choose': {
+          const picked = await dialog.showOpenDialog(mainWindow!, { title: '选择要发送的文件', properties: ['openFile', 'multiSelections'] })
+          if (!picked.canceled) await transferService.selectFiles(picked.filePaths)
+          break
+        }
+        case 'directory': {
+          const picked = await dialog.showOpenDialog(mainWindow!, { title: '选择接收目录', defaultPath: transferService.snapshot().saveDirectory, properties: ['openDirectory', 'createDirectory'] })
+          if (!picked.canceled && picked.filePaths[0]) await transferService.configure({ saveDirectory: picked.filePaths[0] })
+          break
+        }
+        case 'send': {
+          const input = value as { id?: unknown; pin?: unknown }
+          await transferService.send(String(input?.id ?? ''), typeof input?.pin === 'string' ? input.pin : undefined)
+          break
+        }
+        case 'accept': transferService.accept(String(value)); break
+        case 'reject': transferService.reject(String(value)); break
+        case 'cancel': transferService.cancel(String(value)); break
+        case 'clear': transferService.clearDraft(); break
+        case 'folder': await shell.openPath(transferService.snapshot().saveDirectory); break
+        case 'close': hideTransferPanel(); await showRest(); break
+        default: return { ok: false, error: '未知文件传输操作' }
+      }
+      return { ok: true, snapshot: transferService.snapshot() }
+    } catch (error) { return { ok: false, error: String((error as Error).message || error) } }
+  })
+}
+
 function testLevel(value: unknown): 'info' | 'warn' | 'critical' {
   return value === 'warn' || value === 'critical' ? value : 'info'
 }
@@ -2196,6 +2373,7 @@ function createTray(): void {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '打开控制台管理', click: () => { createSettingsWindow().show() } },
     { label: '通知历史', click: () => { createNotificationHistoryWindow() } },
+    { label: '文件传输 · LocalSend', click: () => { void openTransferPanel() } },
     { type: 'separator' },
     { label: '退出', click: () => { quitRequested = true; closeAppWindows(); app.quit() } },
   ]))
@@ -2909,6 +3087,20 @@ app.whenReady().then(async () => {
   viewManager.setHostIdentity({ contractVersion: CONTRACT_VERSION, hostVersion: app.getVersion(), hostName: 'Activity Island', capabilities: HOST_CAPABILITIES })
   viewManager.setDeviceScaleFactor(screen.getPrimaryDisplay().scaleFactor)
   wireIpc(); createTray()
+  installTransferIpc()
+  transferService = new LocalSendService({
+    baseDir: path.join(app.getPath('userData'), 'transfers'),
+    saveDirectory: path.join(app.getPath('downloads'), 'Activity Island'),
+  })
+  transferService.on('change', snapshot => {
+    if (transferView && !transferView.webContents.isDestroyed()) transferView.webContents.send('transfers:change', snapshot)
+    if (!transferPanelOpen && !transferDragging && ['idle', 'compact'].includes(islandState.value.mode)) {
+      const wasVisible = transferProgressVisible
+      if (!showTransferProgress() && wasVisible) void showRest()
+    }
+  })
+  transferService.on('offer', () => { void openTransferPanel() })
+  void transferService.start()
   // 内置通知能力：Windows 通知接管 + 本地触发接口，随应用启动（视图加载后即可收到事件）。
   const listenerScript = app.isPackaged
     ? path.join(process.resourcesPath ?? '', 'notifications', 'listener.ps1')
@@ -2957,6 +3149,7 @@ app.on('before-quit', () => {
   if (!quitRequested) quitRequested = true
   // 停掉监听进程与本地接口，并把历史立即落盘（延迟写入可能在退出时来不及执行）。
   void notificationModule?.stop()
+  void transferService?.stop()
   closeAppWindows()
 })
 app.on('window-all-closed', () => {})

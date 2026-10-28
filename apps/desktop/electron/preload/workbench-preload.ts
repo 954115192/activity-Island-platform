@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { installTransferDrop } from './transfer-drop'
+installTransferDrop()
 
 /**
  * 工作台 preload。
@@ -97,6 +99,7 @@ window.addEventListener('error', event => { ipcRenderer.send('workbench:log', 'e
 window.addEventListener('unhandledrejection', event => { ipcRenderer.send('workbench:log', 'error', `unhandledrejection: ${String((event as PromiseRejectionEvent).reason)}`) })
 
 contextBridge.exposeInMainWorld('workbench', workbench)
+contextBridge.exposeInMainWorld('islandFileTransfer', { open: () => ipcRenderer.send('transfers:open') })
 
 // 旧的 `window.activityIsland`（方法白名单式 `api()`）已随内置工作台迁移一并移除。
 // 没有第三方工作台依赖它，留着只会让新页面继续照着白名单去写 —— 那正是

@@ -62,6 +62,8 @@ export class PluginViewManager {
   private viewportBounds = { x: 0, y: 0, width: 1, height: 1 }
   private viewportRadius = 0
   private workbench: WebContentsView | null = null
+  private transferView: WebContentsView | null = null
+  private transferStage: ViewBounds | null = null
   private workbenchStage: ViewBounds | null = null
   /** 非 null 时收起动画在跑：工作台视图随视口缩放（见 beginWorkbenchCollapse）。 */
   private workbenchCollapseStage: { width: number; height: number } | null = null
@@ -376,6 +378,7 @@ export class PluginViewManager {
     this.viewportBounds = next
     this.viewportRadius = nextRadius
     this.viewport.setBounds(next)
+    if (this.transferView && this.transferStage) this.applyLocalBoundsTo(this.transferView, this.transferStage)
     // Redundant on Windows, but a platform whose compositor does honour parent
     // clipping still gets the animated capsule for free.
     this.viewport.setBorderRadius(this.effectiveRadius())
@@ -399,6 +402,19 @@ export class PluginViewManager {
    * of the still-small island instead of being uncovered by the island's spring.
    * Pass `null` to detach a dead view.
    */
+  adoptTransfer(view: WebContentsView): void {
+    this.transferView = view
+    view.setVisible(false)
+    this.viewport.addChildView(view)
+  }
+
+  setTransferStage(bounds: ViewBounds | null): void {
+    this.transferStage = bounds
+    if (!this.transferView) return
+    if (bounds) this.applyLocalBoundsTo(this.transferView, bounds)
+    this.transferView.setVisible(!!bounds)
+  }
+
   adoptWorkbench(view: WebContentsView | null): void {
     if (this.workbench === view) return
     if (this.workbench) this.viewport.removeChildView(this.workbench)

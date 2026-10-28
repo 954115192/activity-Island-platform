@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { installTransferDrop } from './transfer-drop'
+installTransferDrop()
 contextBridge.exposeInMainWorld('dynamicIslandHost', {
+  openTransfer: () => ipcRenderer.send('transfers:open'),
+  onTransferDrag: (listener: (active: boolean) => void) => {
+    ipcRenderer.on('transfers:drag-preview', (_event, active) => listener(active))
+  },
+  onTransferProgress: (listener: (value: { text: string; progress: number } | null) => void) => {
+    ipcRenderer.on('transfers:progress', (_event, value) => listener(value))
+  },
   listPlugins: () => ipcRenderer.invoke('host:plugins:list'),
   getState: () => ipcRenderer.invoke('host:state:get'),
   onLayout: (listener: (layout: { mode: string; pluginMode?: 'small' | 'medium' | 'large'; separators: number[]; collapsed?: boolean; clipPlugins?: boolean; showClock?: boolean; contentWidth?: number; width: number; height: number; top: number }) => void) => {

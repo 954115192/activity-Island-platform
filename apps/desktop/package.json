@@ -32,15 +32,20 @@
     "test:workbench": "electron scripts/tests/workbench-api-e2e.cjs && electron scripts/tests/workbench-registry-e2e.cjs && electron scripts/tests/workbench-open-e2e.cjs && electron scripts/tests/workbench-page-e2e.cjs && electron scripts/tests/workbench-ui.cjs",
     "test:icons": "electron scripts/tests/icon-e2e.cjs",
     "test:settings": "electron scripts/tests/settings-ui.cjs",
+    "test:transfer": "npm run build:electron && node --test scripts/tests/transfer-service.cjs",
+    "test:transfer-ui": "npm run build && electron scripts/tests/transfer-ui.cjs",
     "build:listener": "dotnet publish tools/notify-listener/notify-listener.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o resources/notifications",
     "build:all": "npm run build:listener && npm run build"
   },
   "devDependencies": {
+    "concurrently": "^9.1.0",
     "electron": "^33.2.0",
     "electron-builder": "^26.0.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
-    "concurrently": "^9.1.0",
     "wait-on": "^8.0.1"
+  },
+  "dependencies": {
+    "selfsigned": "^2.4.1"
   }
 }

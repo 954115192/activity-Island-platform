@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { installTransferDrop } from './transfer-drop'
+installTransferDrop()
 
 type Mode = 'small' | 'medium' | 'large'
 type VisibilityReason = 'mini' | 'expanded' | 'hidden' | 'obscured'

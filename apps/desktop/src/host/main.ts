@@ -24,9 +24,30 @@ const clock = root.querySelector<HTMLElement>('.idle-clock')!
 const separators = root.querySelector<HTMLDivElement>('.island-separators')!
 const overflowChip = root.querySelector<HTMLButtonElement>('.island-overflow')!
 const host = (window as unknown as { dynamicIslandHost?: { onLayout?: (listener: (layout: Layout) => void) => () => void
+    onTransferDrag?: (listener: (active: boolean) => void) => void
+    onTransferProgress?: (listener: (value: { text: string; progress: number } | null) => void) => void
+    openTransfer?: () => void
     onAlert?: (listener: (alert: { level: 'info' | 'warn' | 'critical'; color?: string | null } | null) => void) => () => void
     sendAnimationFrame?: (frame: { width: number; height: number; top: number; radius: number }) => void
     openSettings?: (tab?: string) => void } }).dynamicIslandHost
+
+const dropPreview = document.createElement('div')
+dropPreview.className = 'transfer-drop-preview'
+dropPreview.hidden = true
+dropPreview.innerHTML = '<strong>松开以添加文件</strong><span>通过 LocalSend 发送到附近设备</span>'
+shell.appendChild(dropPreview)
+host?.onTransferDrag?.(active => { dropPreview.hidden = !active })
+const transferProgress = document.createElement('button')
+transferProgress.className = 'transfer-progress'
+transferProgress.hidden = true
+transferProgress.title = '展开文件传输'
+transferProgress.addEventListener('click', () => host?.openTransfer?.())
+shell.appendChild(transferProgress)
+host?.onTransferProgress?.(value => {
+  transferProgress.hidden = !value
+  transferProgress.textContent = value?.text || ''
+  transferProgress.style.setProperty('--transfer-progress', `${value?.progress || 0}%`)
+})
 
 // 临时消息的档位（info/warn/critical）与可选自定义颜色，由宿主在提醒上岛/退场时单独推送。
 // 不走 sendLayout：那条通道带着 12 个位置参数和弹簧动画语义，塞进去会牵动动效路径。

@@ -315,6 +315,7 @@ const boot = async () => {
   applyCapabilities()
 
   $('#exit-workbench')?.addEventListener('click', () => api.exit())
+  $('#open-file-transfer')?.addEventListener('click', () => window.islandFileTransfer?.open())
   $('#ds-token-save')?.addEventListener('click', () => { void saveDeepSeekToken() })
   $('#ds-token-input')?.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') { event.preventDefault(); void saveDeepSeekToken() }
