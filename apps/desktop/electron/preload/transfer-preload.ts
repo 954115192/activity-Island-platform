@@ -14,4 +14,9 @@ contextBridge.exposeInMainWorld('islandTransfer', {
   onError: (listener: (message: string) => void) => {
     ipcRenderer.on('transfers:error', (_event, message) => listener(message))
   },
+  onOpenMode: (listener: (request: { mode: 'files' | 'text'; text?: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, request: { mode: 'files' | 'text'; text?: string }) => listener(request)
+    ipcRenderer.on('transfers:open-mode', handler)
+    return () => ipcRenderer.removeListener('transfers:open-mode', handler)
+  },
 })

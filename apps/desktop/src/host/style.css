@@ -66,3 +66,15 @@ body { pointer-events: none; }
   font: 600 12px/1 var(--font); cursor: pointer;
 }
 .island-overflow:hover { background: var(--surface-1); color: var(--ink); }
+.island-quick-actions {
+  position:absolute; z-index:3; inset:0 0 0 auto; display:grid; place-items:center;
+  width:44px; height:100%; padding:0;
+  border:0; border-radius:0 999px 999px 0;
+  background:rgba(255,255,255,.035); color:var(--ink-muted); cursor:pointer;
+  transition:background .15s,color .15s;
+}
+.island-quick-actions::before { content:""; position:absolute; left:0; top:9px; bottom:9px; width:1px; background:var(--stroke); }
+.island-quick-actions:hover { background:rgba(255,255,255,.09); color:var(--ink); }
+.island-quick-actions svg { width:16px; height:16px; fill:currentColor; }
+.island-quick-actions[hidden] { display:none; }
+.island-shell[data-mode="idle"][data-quick-actions="true"] .idle-clock { padding-right:44px; }

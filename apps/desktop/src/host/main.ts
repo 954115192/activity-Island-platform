@@ -11,22 +11,25 @@ type Layout = {
   chipX?: number | null
   /** Width of the content coordinate system inside the animated shell. */
   contentWidth?: number
+  quickActions?: boolean
   width: number
   height: number
   top: number
 }
 
 const root = document.querySelector<HTMLDivElement>('#host-root')!
-root.innerHTML = '<div class="host-surface"><div class="island-shell" data-mode="idle" data-collapsed="false"><time class="idle-clock" aria-label="当前时间"></time><div class="island-separators"></div><button class="island-overflow" type="button" hidden></button></div></div>'
+root.innerHTML = '<div class="host-surface"><div class="island-shell" data-mode="idle" data-collapsed="false"><time class="idle-clock" aria-label="当前时间"></time><div class="island-separators"></div><button class="island-overflow" type="button" hidden></button><button class="island-quick-actions" type="button" aria-label="快捷操作" title="快捷操作" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></div></div>'
 
 const shell = root.querySelector<HTMLDivElement>('.island-shell')!
 const clock = root.querySelector<HTMLElement>('.idle-clock')!
 const separators = root.querySelector<HTMLDivElement>('.island-separators')!
 const overflowChip = root.querySelector<HTMLButtonElement>('.island-overflow')!
+const quickActionsButton = root.querySelector<HTMLButtonElement>('.island-quick-actions')!
 const host = (window as unknown as { dynamicIslandHost?: { onLayout?: (listener: (layout: Layout) => void) => () => void
     onTransferDrag?: (listener: (active: boolean) => void) => void
     onTransferProgress?: (listener: (value: { text: string; progress: number } | null) => void) => void
     openTransfer?: () => void
+    showQuickActions?: () => void
     onAlert?: (listener: (alert: { level: 'info' | 'warn' | 'critical'; color?: string | null } | null) => void) => () => void
     sendAnimationFrame?: (frame: { width: number; height: number; top: number; radius: number }) => void
     openSettings?: (tab?: string) => void } }).dynamicIslandHost
@@ -76,6 +79,8 @@ let lastSeparators: number[] = []
 function renderShell() {
   shell.dataset.mode = layoutState.mode
   shell.dataset.collapsed = String(layoutState.collapsed ?? false)
+  shell.dataset.quickActions = String(layoutState.quickActions ?? false)
+  quickActionsButton.hidden = !layoutState.quickActions
   if (alertLevel) {
     shell.dataset.alert = alertLevel
     if (alertColor) {
@@ -124,6 +129,10 @@ function renderShell() {
 }
 
 overflowChip.addEventListener('click', () => { host?.openSettings?.('plugins') })
+quickActionsButton.addEventListener('click', event => {
+  event.stopPropagation()
+  host?.showQuickActions?.()
+})
 
 /** Expand at or below this many CSS px of change counts as a hover-sized pop. */
 const MICRO_SPAN = 40

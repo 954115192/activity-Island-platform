@@ -2,7 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { installTransferDrop } from './transfer-drop'
 installTransferDrop()
 contextBridge.exposeInMainWorld('dynamicIslandHost', {
-  openTransfer: () => ipcRenderer.send('transfers:open'),
+  openTransfer: (mode?: 'files' | 'text') => ipcRenderer.send('transfers:open', mode),
+  showQuickActions: () => ipcRenderer.send('host:quick-actions'),
   onTransferDrag: (listener: (active: boolean) => void) => {
     ipcRenderer.on('transfers:drag-preview', (_event, active) => listener(active))
   },
@@ -11,8 +12,8 @@ contextBridge.exposeInMainWorld('dynamicIslandHost', {
   },
   listPlugins: () => ipcRenderer.invoke('host:plugins:list'),
   getState: () => ipcRenderer.invoke('host:state:get'),
-  onLayout: (listener: (layout: { mode: string; pluginMode?: 'small' | 'medium' | 'large'; separators: number[]; collapsed?: boolean; clipPlugins?: boolean; showClock?: boolean; contentWidth?: number; width: number; height: number; top: number }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, layout: { mode: string; pluginMode?: 'small' | 'medium' | 'large'; separators: number[]; collapsed?: boolean; clipPlugins?: boolean; showClock?: boolean; contentWidth?: number; width: number; height: number; top: number }) => listener(layout)
+  onLayout: (listener: (layout: { mode: string; pluginMode?: 'small' | 'medium' | 'large'; separators: number[]; collapsed?: boolean; clipPlugins?: boolean; showClock?: boolean; quickActions?: boolean; contentWidth?: number; width: number; height: number; top: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, layout: { mode: string; pluginMode?: 'small' | 'medium' | 'large'; separators: number[]; collapsed?: boolean; clipPlugins?: boolean; showClock?: boolean; quickActions?: boolean; contentWidth?: number; width: number; height: number; top: number }) => listener(layout)
     ipcRenderer.on('host:layout', handler)
     return () => ipcRenderer.removeListener('host:layout', handler)
   },

@@ -38,9 +38,16 @@ export function isLocalAddress(host: string): boolean {
 export function safeFileName(value: unknown): string {
   if (typeof value !== 'string' || !value || value.length > 240 || /[<>:"/\\|?*\x00-\x1f]/.test(value)
     || /[. ]$/.test(value) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(value) || value === '.' || value === '..') {
-    throw new Error('文件名不受支持；首版只接收文件，不接收文件夹')
+    throw new Error('文件名不受支持')
   }
   return value
+}
+
+function safeRelativeFileName(value: unknown): string {
+  if (typeof value !== 'string' || value.length > 1024 || value.startsWith('/') || value.includes('\\') || /^[a-zA-Z]:/.test(value)) throw new Error('文件相对路径无效')
+  const parts = value.split('/')
+  if (!parts.length || parts.some(part => !part || part === '.' || part === '..')) throw new Error('文件相对路径无效')
+  return parts.map(safeFileName).join('/')
 }
 
 interface Pending {
@@ -281,13 +288,15 @@ export class LocalSendService extends EventEmitter {
     if (reply.status !== 200 || !this.remember({ ...reply.body, port: peer.port, protocol: peer.protocol }, peer.host, reply.fingerprint)) throw new Error('对方未返回兼容的 LocalSend 设备信息')
   }
 
-  async selectFiles(paths: string[], append = false): Promise<void> {
+  async selectFiles(paths: string[], append = false, names?: string[]): Promise<void> {
     if (!Array.isArray(paths) || paths.length === 0 || paths.length > MAX_FILES || paths.some(p => typeof p !== 'string' || !path.isAbsolute(p))) throw new Error('请选择 1–200 个本地文件')
-    const files = []
-    for (const filePath of [...new Set(paths)]) {
+    if (names && names.length !== paths.length) throw new Error('文件清单无效')
+    const files: Source[] = []
+    for (let index = 0; index < paths.length; index++) {
+      const filePath = paths[index]
       const stat = await fs.lstat(filePath)
-      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('首版支持普通文件，请将文件夹打包后再发送')
-      files.push({ id: randomUUID(), fileName: safeFileName(path.basename(filePath)), size: stat.size, fileType: 'application/octet-stream', path: filePath })
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('请选择普通文件；文件夹请使用“选择文件夹”')
+      files.push({ id: randomUUID(), fileName: names ? safeRelativeFileName(names[index]) : safeFileName(path.basename(filePath)), size: stat.size, fileType: 'application/octet-stream', path: filePath })
     }
     const combined = append ? [...this.draft, ...files] : files
     const seen = new Set<string>()
@@ -301,6 +310,58 @@ export class LocalSendService extends EventEmitter {
     if (unique.length > MAX_FILES) throw new Error('最多选择 200 个文件')
     this.draft = unique
     this.changed()
+  }
+
+  async selectFolders(folders: string[]): Promise<void> {
+    if (!Array.isArray(folders) || !folders.length || folders.length > MAX_FILES || folders.some(p => typeof p !== 'string' || !path.isAbsolute(p))) throw new Error('请选择 1–200 个文件夹')
+    const { files, names } = await this.collectFolderFiles(folders)
+    if (!files.length) throw new Error('文件夹里没有可传输的文件')
+    await this.selectFiles(files, true, names)
+  }
+
+  async selectDroppedPaths(paths: string[]): Promise<void> {
+    if (!Array.isArray(paths) || !paths.length || paths.length > MAX_FILES || paths.some(p => typeof p !== 'string' || !path.isAbsolute(p))) throw new Error('请拖入 1–200 个文件或文件夹')
+    const files: string[] = []
+    const names: string[] = []
+    const folders: string[] = []
+    for (const item of paths) {
+      const stat = await fs.lstat(item)
+      if (stat.isSymbolicLink()) throw new Error('不支持拖入符号链接')
+      if (stat.isDirectory()) folders.push(item)
+      else if (stat.isFile()) { files.push(item); names.push(safeFileName(path.basename(item))) }
+      else throw new Error('只能拖入普通文件或文件夹')
+    }
+    if (folders.length) {
+      const nested = await this.collectFolderFiles(folders)
+      files.push(...nested.files)
+      names.push(...nested.names)
+    }
+    if (!files.length) throw new Error('文件夹里没有可传输的文件')
+    await this.selectFiles(files, true, names)
+  }
+
+  private async collectFolderFiles(folders: string[]): Promise<{ files: string[]; names: string[] }> {
+    const files: string[] = []
+    const names: string[] = []
+    for (const folder of [...new Set(folders)]) {
+      const root = await fs.lstat(folder)
+      if (!root.isDirectory() || root.isSymbolicLink()) throw new Error('请选择普通文件夹')
+      const folderName = safeFileName(path.basename(folder))
+      const walk = async (current: string, relative: string): Promise<void> => {
+        for (const entry of await fs.readdir(current, { withFileTypes: true })) {
+          const fullPath = path.join(current, entry.name)
+          const childRelative = relative ? `${relative}/${entry.name}` : entry.name
+          if (entry.isDirectory()) await walk(fullPath, childRelative)
+          else if (entry.isFile()) {
+            files.push(fullPath)
+            names.push(safeRelativeFileName(`${folderName}/${childRelative.replace(/\\/g, '/')}`))
+            if (files.length > MAX_FILES) throw new Error('文件夹内文件过多，最多传输 200 个文件')
+          }
+        }
+      }
+      await walk(folder, '')
+    }
+    return { files, names }
   }
 
   clearDraft(): void { this.draft = []; this.changed() }
@@ -365,6 +426,14 @@ export class LocalSendService extends EventEmitter {
       .then(() => fs.rename(path.join(this.options.baseDir, 'history.json.tmp'), path.join(this.options.baseDir, 'history.json'))).catch(() => {})
   }
 
+  async clearHistory(): Promise<void> {
+    // Keep live transfers visible and intact; only completed/failed/cancelled records are history.
+    for (const [id, session] of this.active) if (TERMINAL.has(session.record.state)) this.active.delete(id)
+    this.persist()
+    await this.historyWrite
+    this.changed()
+  }
+
   async send(deviceId: string, pin?: string, text?: string): Promise<string> {
     const peer = this.devices.get(deviceId)
     if (this.state !== 'running') throw new Error('文件传输服务未就绪')
@@ -387,8 +456,10 @@ export class LocalSendService extends EventEmitter {
     this.update(active, 'verifying')
     for (const source of sources) {
       const hash = createHash('sha256')
+      if (signal.aborted) return
       const stream = source.path ? createReadStream(source.path, { signal }) : Readable.from([Buffer.from(source.preview!, 'utf8')])
       for await (const chunk of stream) hash.update(chunk)
+      if (signal.aborted) return
       if (source.path && (await fs.stat(source.path)).size !== source.size) throw new Error('源文件已变化，请重新添加')
       source.sha256 = hash.digest('hex')
       active.record.files.find(f => f.id === source.id)!.sha256 = source.sha256
@@ -417,9 +488,11 @@ export class LocalSendService extends EventEmitter {
       if (signal.aborted) { cancelRemote(); return }
       this.update(active, 'transferring')
       for (const source of selected) {
+        if (signal.aborted) return
         const query = new URLSearchParams({ sessionId: remoteId, fileId: source.id, token: String(accepted[source.id]) })
         await this.upload(peer, `/upload?${query}`, source, active)
       }
+      if (signal.aborted) return
       peer.lastSeen = Date.now()
       this.update(active, 'completed')
     } finally { signal.removeEventListener('abort', cancelRemote) }
@@ -445,7 +518,11 @@ export class LocalSendService extends EventEmitter {
   }
 
   reject(id: string): void { const a = this.active.get(id); if (a?.pending) this.update(a, 'rejected', '已拒绝接收') }
-  cancel(id: string): void { const a = this.active.get(id); if (a) this.update(a, 'cancelled', '传输已取消') }
+  cancel(id: string): void {
+    const active = this.active.get(id)
+    if (!active || TERMINAL.has(active.record.state)) return
+    this.update(active, 'cancelled', '传输已取消')
+  }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const host = remoteHost(req.socket.remoteAddress)
@@ -471,7 +548,7 @@ export class LocalSendService extends EventEmitter {
         const fileType = String(raw.fileType || 'application/octet-stream').slice(0, 100)
         const text = fileType.split(';')[0].trim().toLowerCase() === 'text/plain' && typeof raw.preview === 'string' && Number(raw.size) <= MAX_TEXT
           && Buffer.byteLength(raw.preview, 'utf8') <= MAX_TEXT && Buffer.byteLength(raw.preview, 'utf8') <= Number(raw.size)
-        const file: TransferFile = { id, fileName: safeFileName(raw.fileName), size: Number(raw.size), fileType, sha256: raw.sha256 as string | undefined,
+        const file: TransferFile = { id, fileName: safeRelativeFileName(raw.fileName), size: Number(raw.size), fileType, sha256: raw.sha256 as string | undefined,
           ...(text ? { kind: 'text' as const, preview: raw.preview as string } : {}) }
         if (text && Buffer.byteLength(file.preview!, 'utf8') === file.size && !completePreview(file)) throw new Error('文本预览校验失败')
         return file
@@ -543,6 +620,10 @@ export class LocalSendService extends EventEmitter {
       if (isText(file)) file.text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(textChunks))
       else {
         const destination = await this.publish(temporary, directory, file.fileName)
+        if (active.controller.signal.aborted) {
+          await fs.unlink(destination).catch(() => {})
+          throw new Error('传输已取消')
+        }
         active.paths.push(destination)
       }
       active.received.add(id)
@@ -559,10 +640,30 @@ export class LocalSendService extends EventEmitter {
   }
 
   private async publish(temporary: string, directory: string, name: string): Promise<string> {
-    const ext = path.extname(name)
-    const stem = path.basename(name, ext)
+    const parts = safeRelativeFileName(name).split('/')
+    const root = path.resolve(directory)
+    await fs.mkdir(root, { recursive: true })
+    let targetDirectory = root
+    for (const part of parts.slice(0, -1)) {
+      targetDirectory = path.join(targetDirectory, part)
+      try {
+        const stat = await fs.lstat(targetDirectory)
+        if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('接收路径中包含非普通文件夹')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        try { await fs.mkdir(targetDirectory) }
+        catch (mkdirError) {
+          if ((mkdirError as NodeJS.ErrnoException).code !== 'EEXIST') throw mkdirError
+          const stat = await fs.lstat(targetDirectory)
+          if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('接收路径中包含非普通文件夹')
+        }
+      }
+    }
+    const leaf = parts[parts.length - 1]
+    const ext = path.extname(leaf)
+    const stem = path.basename(leaf, ext)
     for (let i = 0; i < 1000; i++) {
-      const destination = path.join(directory, i ? `${stem} (${i})${ext}` : name)
+      const destination = path.join(targetDirectory, i ? `${stem} (${i})${ext}` : leaf)
       try {
         // 同目录硬链接原子发布且不覆盖；不支持硬链接的文件系统使用独占复制。
         try { await fs.link(temporary, destination) }
@@ -624,7 +725,7 @@ export class LocalSendService extends EventEmitter {
         this.changed()
         callback(null, chunk)
       } })
-      void pipeline(file.path ? createReadStream(file.path) : Readable.from([Buffer.from(file.preview!, 'utf8')]), meter, request, { signal }).catch(reject)
+      void pipeline(file.path ? createReadStream(file.path, { signal }) : Readable.from([Buffer.from(file.preview!, 'utf8')]), meter, request, { signal }).catch(reject)
     })
   }
 

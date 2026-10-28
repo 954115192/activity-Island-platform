@@ -62,7 +62,7 @@ let transferPanelOpen = false
 let transferDragging = false
 let transferProgressVisible = false
 let transferDragTimer: NodeJS.Timeout | null = null
-let transferPanelSize = { width: 560, height: 510 }
+let transferPanelSize = { width: 680, height: 620 }
 /** 独立通知历史窗口（托盘右键与中岛都能打开）。 */
 let notificationHistoryWindow: BrowserWindow | null = null
 /** 正在把开发目录同步到安装目录的时间窗，用来吞掉同步自身触发的 installed 事件。 */
@@ -151,7 +151,7 @@ let islandSettings: IslandSettings = { idleMode: 'float', islandTop: 8, miniScal
 const islandState = new IslandState()
 const events = new EventBus()
 let islandLayout: IslandLayoutManager | null = null
-let hostLayoutState: { mode: IslandMode; pluginMode?: PluginMode; separators: number[]; collapsed?: boolean; clipPlugins?: boolean; showClock?: boolean; overflow?: number; chipX?: number | null; width: number; height: number; top: number; contentWidth?: number } = { mode: 'idle', separators: [], width: SMALL_DEFAULT.width, height: SMALL_DEFAULT.height, top: 8, contentWidth: SMALL_DEFAULT.width }
+let hostLayoutState: { mode: IslandMode; pluginMode?: PluginMode; separators: number[]; collapsed?: boolean; clipPlugins?: boolean; showClock?: boolean; quickActions?: boolean; overflow?: number; chipX?: number | null; width: number; height: number; top: number; contentWidth?: number } = { mode: 'idle', separators: [], width: SMALL_DEFAULT.width, height: SMALL_DEFAULT.height, top: 8, contentWidth: SMALL_DEFAULT.width }
 type PluginPlacement = { pluginId: string; x: number; width: number; height: number }
 type AnimatedLayout = { width: number; height: number; top: number; placements: PluginPlacement[]; clipPlugins: boolean }
 let animatedFrame = { width: SMALL_DEFAULT.width, height: SMALL_DEFAULT.height, top: 8, radius: 28 }
@@ -470,6 +470,25 @@ function compactLayout(visible: PluginDescriptor[], scale: number, options: { so
   }
 }
 
+/** Reserve a small host-owned trailing slot while the user hovers the island. */
+function compactLayoutWithQuickActions(visible: PluginDescriptor[], scale: number, enabled: boolean) {
+  if (!enabled) return { layout: compactLayout(visible, scale), quickActions: false }
+  const slot = Math.round(44 * scale)
+  const layout = compactLayout(visible, scale)
+  if (layout.baseWidth + slot > MINI_BAR_MAX_WIDTH) return { layout, quickActions: false }
+  const shift = Math.round(slot / 2)
+  return {
+    layout: {
+      ...layout,
+      placements: layout.placements.map(placement => ({ ...placement, x: placement.x + shift })),
+      separators: layout.separators.map(position => position + shift),
+      baseWidth: layout.baseWidth + slot,
+      chipX: layout.chipX == null ? null : layout.chipX + shift,
+    },
+    quickActions: true,
+  }
+}
+
 function syncPluginViews(frame = animatedFrame): void {
   if (!viewManager) return
   // idle（含收起触发条）：插件视图一个都不藏。setVisible(false) 会让 Chromium
@@ -514,12 +533,13 @@ function syncPluginViews(frame = animatedFrame): void {
     scale: islandSettings.miniScale,
   })
 }
-function sendLayout(mode: IslandMode, pluginMode?: PluginMode, separators: number[] = [], collapsed = false, size = { width: SMALL_DEFAULT.width, height: SMALL_DEFAULT.height }, top = islandSettings.islandTop, placements: PluginPlacement[] = [], contentSize: { width: number; height: number; top?: number } = size, clipPlugins = mode === 'expanded' || mode === 'detail', showClock = false, syncPlugins = true, bar: { overflow?: number; chipX?: number | null } = {}): void {
+function sendLayout(mode: IslandMode, pluginMode?: PluginMode, separators: number[] = [], collapsed = false, size = { width: SMALL_DEFAULT.width, height: SMALL_DEFAULT.height }, top = islandSettings.islandTop, placements: PluginPlacement[] = [], contentSize: { width: number; height: number; top?: number } = size, clipPlugins = mode === 'expanded' || mode === 'detail', showClock = false, syncPlugins = true, bar: { overflow?: number; chipX?: number | null; quickActions?: boolean } = {}): void {
   if (transferProgressVisible && (mode !== 'compact' || placements.length > 0)) {
     transferProgressVisible = false
     sendHost('transfers:progress', null)
   }
-  hostLayoutState = { mode, pluginMode, separators, collapsed, clipPlugins, showClock, width: size.width, height: size.height, top, contentWidth: contentSize.width, overflow: bar.overflow ?? 0, chipX: bar.chipX ?? null }
+  const quickActions = bar.quickActions ?? (!transferProgressVisible && !transferDragging && !alertActive && ((mode === 'idle' && idleHover) || (mode === 'compact' && compactHover)))
+  hostLayoutState = { mode, pluginMode, separators, collapsed, clipPlugins, showClock, quickActions, width: size.width, height: size.height, top, contentWidth: contentSize.width, overflow: bar.overflow ?? 0, chipX: bar.chipX ?? null }
   animatedLayout = { width: contentSize.width, height: contentSize.height, top: contentSize.top ?? top, placements, clipPlugins }
   if (syncPlugins) syncPluginViews()
   sendHost('host:layout', hostLayoutState)
@@ -743,7 +763,6 @@ function createHostWindow(): BrowserWindow {
     closable: false,
     skipTaskbar: true,
     hasShadow: false,
-    alwaysOnTop: true,
     icon: appIcon(),
     webPreferences: {
       preload: path.join(__dirname, 'preload', 'host-preload.js'),
@@ -752,6 +771,9 @@ function createHostWindow(): BrowserWindow {
     sandbox: false,
     },
   })
+  // Use Electron's highest always-on-top level; fullscreen apps are hidden by
+  // the foreground monitor before this can cover their display.
+  win.setAlwaysOnTop(true, 'screen-saver')
   const devUrl = process.env.VITE_DEV_SERVER_URL
   if (devUrl) void win.loadURL(devUrl)
   else void win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
@@ -1079,20 +1101,27 @@ function setHitRegion(region: { x: number; y: number; width: number; height: num
   // turn. The caller refreshes after the new layout is submitted.
   if (refresh) updateHitTest()
 }
-function showHost(): void { if (!fullscreenHidden) { mainWindow?.showInactive(); updateHitTest() } }
+function showHost(): void {
+  if (!mainWindow || mainWindow.isDestroyed() || fullscreenHidden) return
+  mainWindow.showInactive()
+  updateHitTest()
+}
 function updateHostVisibilityForFullscreen(fullscreen: boolean): void {
   const win = mainWindow
   if (!win || win.isDestroyed() || quitRequested) return
   fullscreenHidden = fullscreen
   if (fullscreen) {
     if (win.isVisible()) win.hide()
-  } else if (!win.isVisible() || win.isMinimized()) {
-    // Win+D can minimize/hide even a skipped-taskbar, always-on-top window.
-    // Restore only the island; other apps stay on the desktop.
+    return
+  }
+  // Restore the same highest topmost level after hiding; no focus is stolen from
+  // the game/app that just left fullscreen.
+  win.setAlwaysOnTop(true, 'screen-saver')
+  if (!win.isVisible() || win.isMinimized()) {
     if (win.isMinimized()) win.restore()
     win.showInactive()
-    updateHitTest()
   }
+  updateHitTest()
 }
 function cancelCollapse(): void { if (collapseTimer) clearTimeout(collapseTimer); collapseTimer = null }
 function scheduleTransientCollapse(): void {
@@ -1263,7 +1292,7 @@ async function showCompact(hovered = false, solo?: PluginDescriptor, soloWidth?:
     const shellHeight = baseHeight + (hovered ? 4 : 0)
     const stage = stageOrigin(shellWidth, shellHeight, top)
     setHitRegion(stageHitRegion(stage, 28 * scale), false)
-    sendLayout('compact', 'small', hostLayoutState.separators ?? [], false, { width: shellWidth, height: shellHeight }, stage.y, animatedLayout.placements, { width: baseWidth, height: baseHeight, top }, true, false, false, { overflow: hostLayoutState.overflow ?? 0, chipX: hostLayoutState.chipX ?? null })
+    sendLayout('compact', 'small', hostLayoutState.separators ?? [], false, { width: shellWidth, height: shellHeight }, stage.y, animatedLayout.placements, { width: baseWidth, height: baseHeight, top }, true, false, false, { overflow: hostLayoutState.overflow ?? 0, chipX: hostLayoutState.chipX ?? null, quickActions: false })
     return
   }
 
@@ -1272,12 +1301,13 @@ async function showCompact(hovered = false, solo?: PluginDescriptor, soloWidth?:
     // Do not prepare, hide/show, resize, or re-zoom native plugin views here:
     // those operations cause the one-frame disappearance and the second animation
     // that the old renderer never had.
-    const { placements, separators, baseWidth, height: baseHeight, overflow, chipX } = compactLayout(visible, scale)
-    const shellWidth = baseWidth + (hovered ? 10 : 0)
+    const { layout, quickActions } = compactLayoutWithQuickActions(visible, scale, hovered && !solo && !alertActive)
+    const { placements, separators, baseWidth, height: baseHeight, overflow, chipX } = layout
+    const shellWidth = baseWidth + (hovered && !quickActions ? 10 : 0)
     const shellHeight = baseHeight + (hovered ? 4 : 0)
     const stage = stageOrigin(shellWidth, shellHeight, top)
     setHitRegion(stageHitRegion(stage, 28 * scale), false)
-    sendLayout('compact', 'small', separators, false, { width: shellWidth, height: shellHeight }, stage.y, placements, { width: baseWidth, height: baseHeight, top }, true, false, false, { overflow, chipX })
+    sendLayout('compact', 'small', separators, false, { width: shellWidth, height: shellHeight }, stage.y, placements, { width: baseWidth, height: baseHeight, top }, true, false, false, { overflow, chipX, quickActions })
     return
   }
 
@@ -1285,7 +1315,8 @@ async function showCompact(hovered = false, solo?: PluginDescriptor, soloWidth?:
     // mini 缩放或"顶部距离"变了：原生插件视图缓存着自己的 bounds 和 zoom，光改外壳
     // 尺寸会留下旧尺寸的插件（表现为"改完缩放不生效，中岛来回一次才对"）。这里按新
     // 参数重排一次，但不走 prepare()——DOM 模式没变，不必先隐藏视图，避免那一帧闪烁。
-    const { placements, separators, baseWidth, height: baseHeight, overflow, chipX } = compactLayout(visible, scale)
+    const { layout, quickActions } = compactLayoutWithQuickActions(visible, scale, hovered && !solo && !alertActive)
+    const { placements, separators, baseWidth, height: baseHeight, overflow, chipX } = layout
     for (const plugin of visible) viewManager.setZoom(plugin.manifest.id, scale)
     compactScale = scale
     compactTop = top
@@ -1293,12 +1324,15 @@ async function showCompact(hovered = false, solo?: PluginDescriptor, soloWidth?:
     const shellHeight = baseHeight + (hovered ? 4 : 0)
     const stage = stageOrigin(shellWidth, shellHeight, top)
     setHitRegion(stageHitRegion(stage, 28 * scale), false)
-    sendLayout('compact', 'small', separators, false, { width: shellWidth, height: shellHeight }, stage.y, placements, { width: baseWidth, height: baseHeight, top }, true, false, true, { overflow, chipX })
+    sendLayout('compact', 'small', separators, false, { width: shellWidth, height: shellHeight }, stage.y, placements, { width: baseWidth, height: baseHeight, top }, true, false, true, { overflow, chipX, quickActions })
     return
   }
 
   const serial = ++transitionSerial
-  const { placements, separators, baseWidth, height, overflow, chipX } = compactLayout(visible, scale, { solo: !!solo, soloWidth })
+  const { layout, quickActions } = hovered && !solo && !alertActive
+    ? compactLayoutWithQuickActions(visible, scale, true)
+    : { layout: compactLayout(visible, scale, { solo: !!solo, soloWidth }), quickActions: false }
+  const { placements, separators, baseWidth, height, overflow, chipX } = layout
   for (const plugin of visible) await viewManager.ensure(plugin)
   if (serial !== transitionSerial) return
   for (const plugin of visible) viewManager.setZoom(plugin.manifest.id, scale)
@@ -1306,7 +1340,7 @@ async function showCompact(hovered = false, solo?: PluginDescriptor, soloWidth?:
     compactScale = scale
     compactTop = top
   }
-  const width = baseWidth + (hovered ? 10 : 0)
+  const width = baseWidth + (hovered && !quickActions ? 10 : 0)
   const windowHeight = height + (hovered ? 4 : 0)
   const targetLayout: AnimatedLayout = { width: baseWidth, height, top, placements, clipPlugins: true }
   // 从工作台收回 mini：先别藏视图，让收缩中的裁剪窗把控制台"吸"进去（见 deferWorkbenchHide）。
@@ -1355,7 +1389,7 @@ async function showCompact(hovered = false, solo?: PluginDescriptor, soloWidth?:
   } else {
     clearPendingMiniReveal()
   }
-  sendLayout('compact', 'small', separators, false, { width, height: windowHeight }, stage.y, placements, { width: baseWidth, height, top }, true, false, true, { overflow, chipX })
+  sendLayout('compact', 'small', separators, false, { width, height: windowHeight }, stage.y, placements, { width: baseWidth, height, top }, true, false, true, { overflow, chipX, quickActions })
   if (fromConsole) armWorkbenchHideThreshold()
   await animateWindow(bounds)
   if (serial !== transitionSerial) return
@@ -2054,6 +2088,7 @@ function openPluginPanel(pluginId: string): { ok: boolean; error?: string } {
 function closeAppWindows(): void {
   fullscreenMonitor?.stop()
   fullscreenMonitor = null
+  fullscreenHidden = false
   // Hide the transparent always-on-top host before tearing down child views so
   // the Windows trigger strip disappears immediately during tray exit.
   const windows = BrowserWindow.getAllWindows()
@@ -2138,9 +2173,14 @@ function showTransferProgress(): boolean {
   return true
 }
 
-async function openTransferPanel(): Promise<void> {
+type TransferOpenRequest = { mode: 'files' | 'text'; text?: string }
+async function openTransferPanel(request?: TransferOpenRequest): Promise<void> {
   if (!mainWindow || !viewManager) return
-  if (transferPanelOpen && transferViewLoading) return transferViewLoading
+  if (transferPanelOpen && transferViewLoading) {
+    await transferViewLoading
+    if (request) transferView?.webContents.send('transfers:open-mode', request)
+    return
+  }
   const wasOpen = transferPanelOpen
   transferPanelOpen = true
   transferProgressVisible = false
@@ -2153,6 +2193,7 @@ async function openTransferPanel(): Promise<void> {
   hideWorkbench()
   if (wasOpen && transferView && !transferView.webContents.isDestroyed()) {
     transferView.webContents.send('transfers:change', transferService?.snapshot())
+    if (request) transferView.webContents.send('transfers:open-mode', request)
     return
   }
   const serial = ++transitionSerial
@@ -2176,6 +2217,7 @@ async function openTransferPanel(): Promise<void> {
   viewManager.setTransferStage(stage)
   sendLayout('custom', undefined, [], false, size, stage.y, [], size, true)
   transferView?.webContents.send('transfers:change', transferService?.snapshot())
+  if (request) transferView?.webContents.send('transfers:open-mode', request)
   showHost()
 }
 
@@ -2184,8 +2226,18 @@ function installTransferIpc(): void {
   const isDropSurface = (event: Electron.IpcMainEvent) => event.sender === mainWindow?.webContents
     || event.sender === transferView?.webContents || event.sender === workbenchView?.webContents
     || !!viewManager?.helloFor(event.sender)
-  ipcMain.on('transfers:open', event => {
-    if (event.sender === mainWindow?.webContents || (event.sender === workbenchView?.webContents && activeWorkbenchId === BUILTIN_WORKBENCH_ID)) void openTransferPanel()
+  ipcMain.on('transfers:open', (event, mode?: unknown) => {
+    if (event.sender !== mainWindow?.webContents && !(event.sender === workbenchView?.webContents && activeWorkbenchId === BUILTIN_WORKBENCH_ID)) return
+    if (mode === 'text') void openTransferPanel({ mode: 'text', text: clipboard.readText() })
+    else if (mode === 'files') void openTransferPanel({ mode: 'files' })
+    else void openTransferPanel()
+  })
+  ipcMain.on('host:quick-actions', event => {
+    if (event.sender !== mainWindow?.webContents || !mainWindow || mainWindow.isDestroyed()) return
+    Menu.buildFromTemplate([
+      { label: '分享剪贴板文字/链接', click: () => { void openTransferPanel({ mode: 'text', text: clipboard.readText() }) } },
+      { label: '文件传输', click: () => { void openTransferPanel({ mode: 'files' }) } },
+    ]).popup({ window: mainWindow })
   })
   ipcMain.on('transfers:drag', (event, entered: boolean) => {
     if (!isDropSurface(event)) return
@@ -2217,7 +2269,7 @@ function installTransferIpc(): void {
     sendHost('transfers:drag-preview', false)
     void (async () => {
       await openTransferPanel()
-      try { await transferService?.selectFiles(paths as string[], true) }
+      try { await transferService?.selectDroppedPaths(paths as string[]) }
       catch (error) { transferView?.webContents.send('transfers:error', String((error as Error).message || error)) }
     })()
   })
@@ -2227,7 +2279,7 @@ function installTransferIpc(): void {
       switch (method) {
         case 'snapshot': return { ok: true, snapshot: transferService.snapshot() }
         case 'layout': {
-          const size = value === 'text' ? { width: 520, height: 480 } : value === 'task' ? { width: 520, height: 460 } : { width: 560, height: 510 }
+          const size = value === 'text' ? { width: 640, height: 580 } : value === 'task' ? { width: 640, height: 560 } : value === 'connect' ? { width: 680, height: 700 } : { width: 680, height: 620 }
           if (size.width === transferPanelSize.width && size.height === transferPanelSize.height) break
           transferPanelSize = size
           if (transferPanelOpen && viewManager) {
@@ -2245,6 +2297,11 @@ function installTransferIpc(): void {
         case 'choose': {
           const picked = await dialog.showOpenDialog(mainWindow!, { title: '选择要发送的文件', properties: ['openFile', 'multiSelections'] })
           if (!picked.canceled) await transferService.selectFiles(picked.filePaths, true)
+          break
+        }
+        case 'choose-folder': {
+          const picked = await dialog.showOpenDialog(mainWindow!, { title: '选择要发送的文件夹', properties: ['openDirectory', 'multiSelections'] })
+          if (!picked.canceled) await transferService.selectFolders(picked.filePaths)
           break
         }
         case 'directory': {
@@ -2275,6 +2332,7 @@ function installTransferIpc(): void {
         case 'reject': transferService.reject(String(value)); break
         case 'cancel': transferService.cancel(String(value)); break
         case 'clear': transferService.clearDraft(); break
+        case 'clear-history': await transferService.clearHistory(); break
         case 'remove': transferService.removeDraftFile(String(value)); break
         case 'folder': await shell.openPath(transferService.snapshot().saveDirectory); break
         case 'close': hideTransferPanel(); await showRest(); break
@@ -3048,6 +3106,15 @@ function wireIpc(): void {
   ipcMain.on('host:open-settings', () => { createSettingsWindow().show() })
 }
 
+// F11 belongs to the browser shell for web pages; allowing Chromium to handle
+// it inside the island can fullscreen one renderer while native child views and
+// the host capsule keep their window-relative geometry.
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.key === 'F11') event.preventDefault()
+  })
+})
+
 app.whenReady().then(async () => {
   // Windows 靠 AppUserModelId 认任务栏图标与分组；不设的话任务栏显示的是 Electron 默认图标。
   app.setAppUserModelId('com.activity-island.host')
@@ -3159,12 +3226,12 @@ app.whenReady().then(async () => {
   // 启动时后台检查一次更新：不拦启动、不弹窗，结果留给「关于」页。
   if (islandSettings.checkUpdatesOnLaunch) setTimeout(() => { void checkForUpdates(false) }, 5000)
   hitPoll = setInterval(updateHitTest, 20)
+  fullscreenMonitor = new ForegroundFullscreenMonitor(mainWindow, updateHostVisibilityForFullscreen)
+  fullscreenMonitor.start()
   for (const plugin of discovered) if (pluginEnabled(plugin.manifest.id)) backgroundManager.start(plugin)
   if (islandSettings.idleMode === 'collapsed') void warmPluginViews()
   // 启动时的静止状态同样取决于"空闲表现"：收起模式直接就是顶部触发条。
   await showRest()
-  fullscreenMonitor = new ForegroundFullscreenMonitor(updateHostVisibilityForFullscreen)
-  fullscreenMonitor.start()
   // 盯住开发目录/安装目录：改文件就自动同步 + 热重载。
   startWatching()
   if (pluginManager?.issues().length) for (const issue of pluginManager.issues()) pluginLogger?.append(issue.id ?? 'unknown', 'warn', `未加载 ${issue.directory}：${issue.reason}`)
