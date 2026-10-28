@@ -1,3 +1,3 @@
-# Integration tests
+# 集成测试
 
-Composition tests for services, persistence, permissions, and event routing.
+验证服务、持久化、权限和事件路由的组合行为。

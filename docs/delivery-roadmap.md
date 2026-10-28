@@ -1,89 +1,91 @@
-# Delivery Roadmap
+# 开发路线与交付计划
 
-## Release 0.1 — foundation
+## 0.1：基础设施
 
-Outcome: a runnable shell with stable contracts and no feature-specific coupling.
+目标：得到一个可运行的桌面壳层，并建立稳定的契约和清晰的功能边界。
 
-- Define domain event envelopes and error types.
-- Define device, permission, notification, and transfer interfaces.
-- Establish desktop shell lifecycle and surface states.
-- Add service startup, shutdown, health, and diagnostic hooks.
-- Add contract tests and a local fake service environment.
+- 定义领域事件公共结构与错误类型。
+- 定义设备、权限、通知和传输接口。
+- 建立桌面壳层生命周期与界面状态。
+- 增加服务启动、关闭、健康状态和诊断接口。
+- 增加契约测试和本地模拟服务环境。
 
-Exit criteria: the shell can display a fake notification and a fake transfer state through the same interfaces that production services will use.
+验收标准：壳层可以通过正式服务将来使用的同一套接口，展示模拟通知和模拟传输状态。
 
-## Release 0.2 — Windows notification path
+## 0.2：Windows 通知流程
 
-Outcome: the first real product loop.
+目标：形成第一个真实可用的完整功能流程。
 
-- Integrate the Windows notification adapter.
-- Normalize source, title, content summary, timestamp, and supported actions.
-- Add deduplication and bounded history.
-- Add application-level filters and pause controls.
-- Ship the notification module in the island and workbench.
+- 接入 Windows 通知适配器。
+- 增加内置本地触发接口，本机脚本可通过回环端口推送通知。
+- 标准化来源、标题、正文摘要、时间和支持的操作。
+- 增加去重与有保留上限的历史记录。
+- 增加按应用过滤和暂停控制。
+- 在灵动岛中提供通知模块（小岛预览、中岛详情）。
+- 在托盘菜单提供统一的通知历史管理入口。
 
-Exit criteria: a real Windows notification appears once, can be inspected, and can open its source without destabilizing the shell.
+验收标准：真实 Windows 通知只展示一次，可以查看详情和打开来源，并且不会影响壳层稳定性。
 
-## Release 0.3 — device identity and pairing
+## 0.3：设备身份与配对
 
-Outcome: the desktop can establish a trusted relationship with a phone.
+目标：让电脑与手机建立可信关系。
 
-- Implement one-time pairing code or QR flow.
-- Store a revocable device record.
-- Add authenticated local-network sessions.
-- Add online, offline, reconnecting, and unavailable states.
-- Add device management in settings and workbench.
+- 实现一次性配对码或二维码流程。
+- 保存可撤销的设备记录。
+- 建立经过身份认证的局域网会话。
+- 提供在线、离线、重连中和不可用状态。
+- 在设置和工作台中增加设备管理。
 
-Exit criteria: a user can pair, restart both apps, reconnect, and revoke the device.
+验收标准：用户可以完成配对，在两端重启后重新连接，并撤销设备授权。
 
-## Release 0.4 — file transfer
+## 0.4：文件传输
 
-Outcome: reliable two-way local-network transfer.
+目标：实现可靠的局域网双向传输。
 
-- Define transfer session and chunk protocol.
-- Add approval, progress, cancellation, checksum verification, and retry.
-- Add managed temporary storage and cleanup.
-- Add transfer module in the island and workbench.
+- 定义传输会话与分片协议。
+- 增加接收确认、进度、取消、校验和重试。
+- 增加受管理的临时存储与清理机制。
+- 在灵动岛与工作台中提供传输模块。
 
-Exit criteria: a transfer survives a temporary disconnect or reports a recoverable failure with a retry action.
+验收标准：传输能从短暂断线中恢复，或显示可恢复的失败状态并提供重试入口。
 
-## Release 0.5 — phone notification mirror
+## 0.5：手机通知同步
 
-Outcome: selected phone notifications can appear on the desktop.
+目标：将用户选定的手机通知展示到电脑。
 
-- Add phone notification access and local filters.
-- Add desktop privacy filters.
-- Add stable source and event identity for deduplication.
-- Add mute, application policy, and content visibility controls.
-- Add supported source actions where the phone platform permits them.
+- 增加手机端通知访问与本地过滤。
+- 增加电脑端隐私过滤。
+- 增加用于去重的稳定来源与事件标识。
+- 增加静音、应用策略和正文可见性控制。
+- 在手机系统允许的情况下接入来源操作。
 
-Exit criteria: users can choose exactly which phone notification categories reach the desktop.
+验收标准：用户可以明确选择哪些手机通知类别能够到达电脑。
 
-## Release 0.6 — extension platform
+## 0.6：扩展平台
 
-Outcome: third-party development uses safe, stable platform contracts.
+目标：让第三方开发使用安全、稳定的平台契约。
 
-- Publish extension manifest and capability model.
-- Add SDK clients for notifications, devices, transfers, and presentation.
-- Add simulators for local development.
-- Add installation review, permission prompts, logs, and compatibility checks.
+- 发布扩展清单与能力模型。
+- 为通知、设备、传输和展示能力提供 SDK。
+- 增加本地开发模拟器。
+- 增加安装审核、权限提示、日志和兼容性检查。
 
-Exit criteria: an extension can use an approved transfer or notification subscription without managing the underlying connection.
+验收标准：扩展可以通过授权接口创建传输或订阅通知，无需管理底层连接。
 
-## Release 1.0 — durable daily product
+## 1.0：可长期日常使用的产品
 
-- Harden upgrades and data migration.
-- Add service isolation and crash recovery.
-- Add accessibility and reduced-motion coverage.
-- Add privacy export and deletion controls.
-- Add release telemetry that excludes content by default.
-- Document support policy and compatibility guarantees.
+- 完善升级与数据迁移。
+- 增加服务隔离与崩溃恢复。
+- 覆盖无障碍和减少动态效果设置。
+- 增加隐私数据导出与删除控制。
+- 增加运行诊断指标，默认排除私人内容。
+- 明确支持策略与兼容性承诺。
 
-## Deliberately deferred
+## 暂缓范围
 
-- Public extension marketplace.
-- Internet relay or cloud storage replacement.
-- Full phone screen mirroring.
-- Full messaging client.
-- Broad automation language.
+- 公共扩展市场。
+- 公网中继或云存储替代方案。
+- 完整手机投屏。
+- 完整聊天客户端。
+- 通用自动化语言。
 

@@ -1,14 +1,46 @@
 {
-  "name": "@activity-island/desktop",
-  "version": "0.1.0",
+  "name": "dynamic-island-host",
+  "version": "0.2.1",
   "private": true,
-  "type": "module",
+  "description": "独立 Web 插件驱动的 Windows Electron 灵动岛 Host",
+  "author": "Activity Island",
+  "license": "CC-BY-NC-4.0",
+  "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "node -e \"console.log('Desktop shell scaffold is ready')\"",
-    "build": "node -e \"console.log('Desktop build will be added with the shell implementation')\"",
-    "typecheck": "tsc --noEmit"
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build:renderer && npm run build:electron",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "start": "electron .",
+    "new-plugin": "node scripts/new-plugin.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "dist": "npm run build && electron-builder --win",
+    "dist:portable": "npm run build && electron-builder --win portable",
+    "test:contract": "node scripts/tests/contract-unit.cjs && node scripts/tests/phase-c-authoring.cjs",
+    "test:ui": "electron scripts/tests/settings-ui.cjs",
+    "test:bg": "electron scripts/tests/background-e2e.cjs",
+    "test:click": "electron scripts/tests/click-expand-e2e.cjs",
+    "test:presence": "electron scripts/tests/presence-e2e.cjs",
+    "test:alert": "electron scripts/tests/alert-visual-e2e.cjs",
+    "test:anim": "electron scripts/tests/animation-e2e.cjs",
+    "test:geo": "electron scripts/tests/geometry-e2e.cjs",
+    "test:quit": "node scripts/tests/tray-quit-e2e.cjs",
+    "test:visibility": "node scripts/tests/window-visibility-unit.cjs && node scripts/tests/window-visibility-e2e.cjs",
+    "test:wheel": "electron scripts/tests/wheel-picker-e2e.cjs",
+    "test:pack": "node scripts/tests/zip-unit.cjs && electron scripts/tests/package-roundtrip-e2e.cjs",
+    "test:dist": "electron scripts/tests/packaged-asar-e2e.cjs",
+    "test:workbench": "electron scripts/tests/workbench-api-e2e.cjs && electron scripts/tests/workbench-registry-e2e.cjs && electron scripts/tests/workbench-open-e2e.cjs && electron scripts/tests/workbench-page-e2e.cjs && electron scripts/tests/workbench-ui.cjs",
+    "test:icons": "electron scripts/tests/icon-e2e.cjs",
+    "test:settings": "electron scripts/tests/settings-ui.cjs",
+    "build:listener": "dotnet publish tools/notify-listener/notify-listener.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o resources/notifications",
+    "build:all": "npm run build:listener && npm run build"
   },
-  "dependencies": {
-    "@activity-island/platform-contracts": "0.1.0"
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^26.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "concurrently": "^9.1.0",
+    "wait-on": "^8.0.1"
   }
 }

@@ -1,75 +1,78 @@
-# Development Method
+# 开发方法与完成标准
 
-## Work from vertical slices
+## 按完整流程开发
 
-Each feature must cross the full product path before it is considered useful:
+每项功能都应贯穿完整产品流程：
 
 ```text
-source adapter → platform service → permission check → event router
-→ official module → island/workbench presentation → recovery path
+来源适配 → 平台服务 → 权限检查 → 事件路由
+→ 官方模块 → 灵动岛或工作台展示 → 故障恢复
 ```
 
-Do not build a large collection of adapters or UI screens without completing one end-to-end journey.
+先完成一条可用的端到端流程，再扩大适配器和界面范围。
 
-## Contract-first development
+## 先定义契约，再实现服务
 
-Before implementing a service:
+实现一个服务前，应完成：
 
-1. Define input and output types.
-2. Define lifecycle states.
-3. Define structured errors.
-4. Define permission requirements.
-5. Define idempotency and retry behavior.
-6. Add a fake implementation for tests.
+1. 定义输入和输出类型。
+2. 定义生命周期状态。
+3. 定义结构化错误。
+4. 定义权限要求。
+5. 定义幂等与重试行为。
+6. 提供用于测试的模拟实现。
 
-The fake implementation is a required development tool. It lets the shell and official modules progress without a physical phone or a particular Windows state.
+模拟实现是必需的开发工具，使壳层和官方模块在没有实体手机、也不依赖特定 Windows 状态的情况下继续开发。
 
-## Module rules
+## 模块规则
 
-Official modules may use platform services and render on all supported surfaces. They must remain replaceable at the UI level and must not hide state transitions inside view-only code.
+官方模块可以使用平台服务，并在支持的各类界面中展示。界面应可独立替换，业务状态变化需要在明确的状态模型中表达。
 
-Extensions may use only the public SDK. Any new platform capability must be added to a contract package first, then implemented by the platform service, then exposed through the SDK.
+扩展只能使用公共 SDK。新增平台能力时，先将其加入契约包，再由平台服务实现，最后通过 SDK 开放。
 
-## Testing layers
+## 测试分层
 
-### Contract tests
+### 契约测试
 
-Verify event envelopes, versions, capability checks, and structured errors.
+验证事件结构、版本、能力检查和结构化错误。
 
-### Service tests
+### 服务测试
 
-Verify normalization, state machines, retries, cleanup, deduplication, and permission behavior with fake adapters.
+使用模拟适配器验证标准化、状态机、重试、清理、去重和权限行为。
 
-### Integration tests
+### 集成测试
 
-Verify service composition, storage, event routing, and renderer boundaries.
+验证服务组合、存储、事件路由和渲染进程边界。
 
-### End-to-end tests
+### 端到端测试
 
-Verify the user journeys: notification arrival, pairing, transfer, cancellation, reconnect, and revocation.
+验证通知到达、配对、传输、取消、重连和授权撤销等用户流程。
 
-### Manual verification
+### 人工验证
 
-Use real Windows notifications and at least one physical Android device before a release that changes those paths. Record the OS version, phone version, network type, and permission state.
+涉及 Windows 通知或手机能力的版本发布前，使用真实 Windows 通知和至少一台实体 Android 设备验证相应流程。
 
-## Change policy
+记录操作系统版本、手机版本、网络类型和权限状态。
 
-- Keep changes scoped to one domain.
-- Prefer additive contract changes.
-- Do not put feature logic in the desktop process entry point.
-- Do not introduce an extension-only workaround for a missing platform service.
-- Every new persisted field needs a migration or an explicit version gate.
-- Every new sensitive field needs a retention and redaction decision.
+## 变更规则
 
-## Definition of done
+- 项目说明、设计文档和开发文档统一使用中文；代码标识、命令、包名和路径保持其技术原名。
+- 每次变更集中在一个业务领域。
+- 优先采用向后兼容的契约扩展。
+- 业务逻辑应放在对应服务或模块中，桌面进程入口负责组装。
+- 缺少平台服务时，应补齐服务，避免由扩展临时承担公共机制。
+- 每个新增持久化字段都需要迁移方案或明确的版本控制。
+- 每个新增敏感字段都需要保留期限和脱敏规则。
 
-A change is complete when:
+## 完成标准
 
-- The contract is documented and versioned.
-- Permission behavior is explicit.
-- Failure and recovery states are represented.
-- The affected unit, integration, and end-to-end checks pass.
-- The feature is observable in the island or workbench where appropriate.
-- Logs contain identifiers and state, not private content by default.
-- The user can disable or revoke the feature when it handles personal data.
+满足以下条件后，一项变更才算完成：
+
+- 契约已文档化并有版本信息。
+- 权限行为明确。
+- 已表达失败与恢复状态。
+- 受影响的单元、集成和端到端检查通过。
+- 用户可以在合适的灵动岛或工作台界面中观察功能状态。
+- 日志默认只记录标识和状态，排除私人内容。
+- 涉及个人数据时，用户可以停用功能或撤销授权。
 

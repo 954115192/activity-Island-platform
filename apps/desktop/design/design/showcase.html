@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>灵动岛 · 设计展示</title>
+<style>
+  :root {
+    --island-bg: #000000;
+    --panel-bg: #0C0C0E;
+    --surface-1: #18181B;
+    --surface-2: #222226;
+    --stroke: #2E2E33;
+    --ink: #F4F4F5;
+    --ink-muted: #A1A1AA;
+    --ink-faint: #71717A;
+    --accent: #3B82F6;
+    --accent-soft: #3B82F61F;
+    --success: #22C55E;
+    --warning: #F59E0B;
+    --danger: #EF4444;
+    --temp-glow: #60A5FA;
+    --r-pill: 999px;
+    --r-lg: 28px;
+    --r-md: 24px;
+    --r-panel: 20px;
+    --r-card: 12px;
+    --font: "Segoe UI", "MiSans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --mono: "Cascadia Code", "SF Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: #07080A;
+    color: var(--ink);
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .bg-desk {
+    position: fixed; inset: 0; z-index: 0;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #1a2740 0%, transparent 55%),
+      linear-gradient(180deg, #0a1220 0%, #07080A 40%, #0A0C10 100%);
+  }
+  .bg-desk::after {
+    content: "";
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: linear-gradient(180deg, rgba(0,0,0,0.5), transparent 70%);
+  }
+  .wrap {
+    position: relative; z-index: 1;
+    max-width: 1100px; margin: 0 auto;
+    padding: 40px 24px 96px;
+  }
+  header.site {
+    margin-bottom: 48px;
+  }
+  .eyebrow {
+    font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600; margin-bottom: 12px;
+  }
+  h1 {
+    font-size: 36px; font-weight: 700; letter-spacing: -0.02em;
+    margin-bottom: 12px;
+  }
+  .lede {
+    color: var(--ink-muted); max-width: 640px; font-size: 15px;
+  }
+  .note {
+    margin-top: 16px; padding: 12px 14px;
+    border: 1px solid var(--stroke); border-radius: var(--r-card);
+    background: var(--surface-1); color: var(--ink-muted);
+    font-size: 13px; max-width: 720px;
+  }
+  .note strong { color: var(--ink); }
+  section { margin-top: 56px; }
+  .sec-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 16px; margin-bottom: 20px; flex-wrap: wrap;
+  }
+  h2 {
+    font-size: 20px; font-weight: 650; letter-spacing: -0.01em;
+  }
+  .sec-desc { color: var(--ink-muted); font-size: 13px; max-width: 520px; }
+
+  /* Stage */
+  .stage {
+    background: var(--panel-bg);
+    border: 1px solid var(--stroke);
+    border-radius: 16px;
+    padding: 28px 20px 24px;
+    position: relative;
+  }
+  .stage-label {
+    position: absolute; top: 12px; left: 16px;
+    font-size: 11px; color: var(--ink-faint);
+    font-family: var(--mono);
+  }
+  .stage-center {
+    display: flex; flex-direction: column; align-items: center; gap: 20px;
+    padding-top: 12px;
+  }
+  .caption {
+    margin-top: 14px; color: var(--ink-faint); font-size: 12px;
+    text-align: center;
+  }
+
+  /* Small island */
+  .island-small {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--island-bg);
+    border-radius: var(--r-pill);
+    padding: 10px 16px;
+    min-height: 44px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+  }
+  .island-small.temp {
+    box-shadow:
+      0 0 0 1px var(--temp-glow),
+      0 0 28px rgba(59,130,246,0.35),
+      0 8px 32px rgba(0,0,0,0.45);
+  }
+  .slot {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 13px; color: var(--ink);
+    white-space: nowrap;
+    padding: 2px 4px; border-radius: 8px;
+    cursor: default;
+  }
+  .slot .muted { color: var(--ink-muted); }
+  .slot .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent); flex-shrink: 0;
+  }
+  .dot.ok { background: var(--success); }
+  .dot.warn { background: var(--warning); }
+  .dot.err { background: var(--danger); }
+  .slot-sep {
+    width: 1px; height: 14px; background: var(--stroke); opacity: 0.8;
+  }
+  .overflow {
+    font-size: 12px; color: var(--ink-faint); padding-left: 2px;
+  }
+
+  /* Medium island */
+  .island-medium {
+    width: min(400px, 100%);
+    background: var(--island-bg);
+    border-radius: var(--r-md);
+    padding: 14px 14px 12px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+  }
+  .im-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px; gap: 8px;
+  }
+  .im-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 14px; font-weight: 600;
+  }
+  .im-actions { display: flex; gap: 6px; }
+  .btn {
+    border: none; cursor: pointer; font-family: inherit;
+    background: var(--surface-2); color: var(--ink);
+    font-size: 12px; padding: 6px 10px; border-radius: 8px;
+  }
+  .btn:hover { background: #2a2a30; }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.ghost {
+    background: transparent; border: 1px solid var(--stroke); color: var(--ink-muted);
+  }
+  .metrics {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  }
+  .metric {
+    background: var(--surface-1);
+    border-radius: var(--r-card);
+    padding: 16px 14px;
+    min-height: 100px;
+  }
+  .metric .label {
+    font-size: 12px; color: var(--ink-muted); margin-bottom: 8px;
+  }
+  .metric .value {
+    font-size: 28px; font-weight: 700; letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .im-foot {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 12px; font-size: 12px;
+  }
+  .im-foot .status { color: var(--accent); font-weight: 500; }
+  .im-foot .meta { color: var(--ink-muted); font-family: var(--mono); font-size: 11px; }
+
+  /* Workbench */
+  .workbench {
+    width: min(920px, 100%);
+    background: var(--panel-bg);
+    border: 1px solid var(--stroke);
+    border-radius: var(--r-panel);
+    overflow: hidden;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.55);
+  }
+  .wb-top {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; border-bottom: 1px solid var(--stroke);
+    gap: 12px; flex-wrap: wrap;
+  }
+  .wb-brand {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .wb-icon {
+    width: 28px; height: 28px; border-radius: 8px;
+    background: var(--accent-soft); border: 1px solid #3B82F655;
+    display: grid; place-items: center;
+  }
+  .wb-icon svg { width: 14px; height: 14px; }
+  .wb-brand h3 { font-size: 15px; font-weight: 650; }
+  .wb-brand p { font-size: 11px; color: var(--ink-faint); }
+  .wb-top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--ink-muted);
+    background: var(--surface-1); border: 1px solid var(--stroke);
+    border-radius: 999px; padding: 6px 10px;
+  }
+  .chip .live {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--success);
+  }
+  .wb-body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
+  .kpi-row {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+  }
+  .kpi {
+    background: var(--surface-1); border: 1px solid var(--stroke);
+    border-radius: var(--r-card); padding: 14px;
+  }
+  .kpi .label {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--ink-muted); margin-bottom: 8px;
+  }
+  .kpi .value {
+    font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+    margin-bottom: 4px;
+  }
+  .kpi .sub { font-size: 11px; color: var(--ink-faint); }
+  .block-title {
+    font-size: 13px; font-weight: 600; margin-bottom: 8px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .block-title span { font-weight: 400; color: var(--ink-faint); font-size: 12px; }
+  .mid-row {
+    display: grid; grid-template-columns: 1.2fr 1fr; gap: 10px;
+  }
+  .panel {
+    background: var(--surface-1); border: 1px solid var(--stroke);
+    border-radius: var(--r-card); padding: 14px;
+  }
+  .usage-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  }
+  .usage-cell {
+    background: var(--surface-2); border-radius: 8px; padding: 10px 8px;
+    text-align: center;
+  }
+  .usage-cell .l { font-size: 11px; color: var(--ink-muted); margin-bottom: 6px; }
+  .usage-cell .v {
+    font-size: 12px; color: var(--ink-faint); font-family: var(--mono);
+  }
+  .usage-cell .v.ready { color: var(--success); }
+  .token-row {
+    display: flex; gap: 8px; align-items: center; margin-top: 10px;
+  }
+  .token-row input {
+    flex: 1; background: var(--surface-2); border: 1px solid var(--stroke);
+    border-radius: 8px; color: var(--ink); padding: 7px 10px;
+    font-size: 12px; font-family: inherit;
+  }
+  .token-row input::placeholder { color: var(--ink-faint); }
+  .net-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
+  .net-metrics .l { font-size: 12px; color: var(--ink-muted); }
+  .net-metrics .v {
+    font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .quick-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .quick {
+    width: 56px; height: 56px; border-radius: 12px;
+    background: var(--surface-2); border: 1px dashed var(--stroke);
+    display: grid; place-items: center; color: var(--ink-faint);
+    font-size: 11px; cursor: default;
+  }
+  .params {
+    background: var(--surface-1); border: 1px solid var(--stroke);
+    border-radius: var(--r-card); padding: 14px;
+  }
+  .param-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0; font-size: 13px; gap: 12px; flex-wrap: wrap;
+  }
+  .param-row + .param-row { border-top: 1px solid #1f1f24; }
+  .param-row .hint { font-size: 11px; color: var(--ink-faint); }
+  .select {
+    background: var(--surface-2); border: 1px solid var(--stroke);
+    color: var(--ink); border-radius: 8px; padding: 6px 10px;
+    font-family: inherit; font-size: 12px;
+  }
+  .toggle {
+    width: 36px; height: 20px; border-radius: 999px;
+    background: var(--accent); position: relative; border: none;
+  }
+  .toggle::after {
+    content: ""; position: absolute; top: 2px; right: 2px;
+    width: 16px; height: 16px; border-radius: 50%; background: #fff;
+  }
+  .swatch {
+    width: 20px; height: 20px; border-radius: 6px; background: var(--accent);
+    border: 1px solid #fff3;
+  }
+  .wb-foot {
+    display: flex; justify-content: space-between; font-size: 11px;
+    color: var(--ink-faint); padding-top: 4px; font-family: var(--mono);
+  }
+
+  /* Grid of plugins */
+  .plugin-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .plugin-card {
+    background: var(--surface-1); border: 1px solid var(--stroke);
+    border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .plugin-card h3 {
+    font-size: 14px; font-weight: 650;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .plugin-card .id {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+  }
+  .plugin-card p { font-size: 12px; color: var(--ink-muted); flex: 1; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag {
+    font-size: 11px; padding: 3px 8px; border-radius: 999px;
+    background: var(--surface-2); color: var(--ink-muted);
+    border: 1px solid var(--stroke);
+  }
+  .tag.accent { color: #93c5fd; border-color: #3B82F644; background: var(--accent-soft); }
+
+  .wb-cards {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .wb-card {
+    background: var(--surface-1); border: 1px solid var(--stroke);
+    border-radius: 14px; padding: 16px;
+  }
+  .wb-card h3 { font-size: 14px; margin-bottom: 6px; }
+  .wb-card .id { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-bottom: 8px; }
+  .wb-card p { font-size: 12px; color: var(--ink-muted); margin-bottom: 10px; }
+  .wb-card ul { list-style: none; font-size: 12px; color: var(--ink-muted); }
+  .wb-card li { padding: 3px 0; }
+  .wb-card li::before { content: "· "; color: var(--accent); }
+
+  /* Two-col compare */
+  .compare {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  }
+  @media (max-width: 800px) {
+    .compare, .mid-row, .kpi-row, .usage-grid { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 560px) {
+    .kpi-row, .usage-grid, .metrics, .compare, .mid-row { grid-template-columns: 1fr; }
+    h1 { font-size: 28px; }
+  }
+
+  /* Settings / AI mini */
+  .split {
+    display: grid; grid-template-columns: 200px 1fr; gap: 0;
+    background: var(--panel-bg); border: 1px solid var(--stroke);
+    border-radius: 16px; overflow: hidden; min-height: 360px;
+  }
+  @media (max-width: 700px) { .split { grid-template-columns: 1fr; } }
+  .split-nav {
+    background: var(--surface-1); border-right: 1px solid var(--stroke);
+    padding: 14px 10px;
+  }
+  .nav-item {
+    padding: 8px 10px; border-radius: 8px; font-size: 13px;
+    color: var(--ink-muted); cursor: default;
+  }
+  .nav-item.active {
+    background: var(--accent-soft); color: var(--ink);
+    border: 1px solid #3B82F633;
+  }
+  .split-body { padding: 18px; }
+  .split-body h3 { font-size: 15px; margin-bottom: 4px; }
+  .split-body .sub { font-size: 12px; color: var(--ink-faint); margin-bottom: 14px; }
+  .list-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 12px 0; border-bottom: 1px solid #1f1f24;
+    font-size: 13px; flex-wrap: wrap;
+  }
+  .list-row .name { font-weight: 500; }
+  .list-row .meta { font-size: 11px; color: var(--ink-faint); font-family: var(--mono); }
+  .list-actions { display: flex; gap: 8px; align-items: center; }
+
+  .ai-shell {
+    background: var(--panel-bg); border: 1px solid var(--stroke);
+    border-radius: 16px; overflow: hidden;
+  }
+  .ai-head {
+    padding: 12px 16px; border-bottom: 1px solid var(--stroke);
+    font-size: 13px; font-weight: 600;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .ai-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .bubble {
+    max-width: 85%; padding: 12px 14px; border-radius: 12px;
+    font-size: 13px; line-height: 1.55;
+  }
+  .bubble.user {
+    align-self: flex-end; background: var(--accent); color: #fff;
+  }
+  .bubble.bot {
+    align-self: flex-start; background: var(--surface-1);
+    border: 1px solid var(--stroke); color: var(--ink);
+  }
+  .bubble code {
+    font-family: var(--mono); font-size: 12px; background: #000;
+    padding: 1px 5px; border-radius: 4px; color: #93c5fd;
+  }
+  .ai-actions { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+
+  footer.site {
+    margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--stroke);
+    color: var(--ink-faint); font-size: 12px;
+  }
+  footer.site code {
+    font-family: var(--mono); color: var(--ink-muted);
+  }
+</style>
+</head>
+<body>
+<div class="bg-desk" aria-hidden="true"></div>
+<div class="wrap">
+  <header class="site">
+    <div class="eyebrow">Activity Island · Design Showcase</div>
+    <h1>灵动岛</h1>
+    <p class="lede">
+      Windows 桌面信息岛：四个容器（小岛 / 中岛 / 大岛 / 右键工作台）由插件驱动内容；
+      支持长期占岛与临时消息突出；工作台全局单例，插件多实例并行。
+      本页是视觉与标志性能力的设计基线，token 与 <code style="font-family:var(--mono);font-size:13px">DESIGN.md</code> 一致。
+    </p>
+    <div class="note">
+      <strong>Figma MCP：</strong>本会话未连接 Figma MCP（无 <code>use_figma</code> / <code>create_new_file</code>）。
+      无法直接写入 Figma 画布。接入后可按本页 token 与容器规格建 Variables + 组件。
+      交付物：项目内 <code>DESIGN.md</code>、<code>docs/PRODUCT.md</code>、本展示页。
+    </div>
+  </header>
+
+  <!-- CONTAINERS -->
+  <section id="containers">
+    <div class="sec-head">
+      <h2>四容器</h2>
+      <p class="sec-desc">从「一眼扫读」到「全景管理」的阶梯。圆角阶梯：小岛 pill → 中岛 24 → 大岛 28 → 工作台 20 → 卡片 12。</p>
+    </div>
+
+    <div class="stage">
+      <div class="stage-label">01 · 小岛 — 长期占岛 · 多插件槽</div>
+      <div class="stage-center">
+        <div class="island-small" role="img" aria-label="小岛：余额、下载速度、专注倒计时">
+          <div class="slot"><span class="dot"></span><span class="muted">余额</span><span class="val">¥2.56</span></div>
+          <div class="slot-sep" aria-hidden="true"></div>
+          <div class="slot"><span class="muted">⬇</span><span class="val">2.4</span><span class="muted">MB/s</span></div>
+          <div class="slot-sep" aria-hidden="true"></div>
+          <div class="slot"><span class="dot ok"></span><span class="muted">专注</span><span class="val">25m</span></div>
+          <div class="overflow">+2</div>
+        </div>
+      </div>
+      <p class="caption">槽位有限（默认 ≤4）；溢出显示 +N。状态点用语义色，不靠装饰。</p>
+    </div>
+
+    <div class="stage" style="margin-top:16px">
+      <div class="stage-label">02 · 小岛 — 临时消息突出</div>
+      <div class="stage-center">
+        <div class="island-small temp" role="img" aria-label="小岛临时消息：DeepSeek 余额偏低">
+          <div class="slot"><span class="dot warn"></span><span class="muted">DeepSeek</span><span class="val" style="color:#F59E0B">余额偏低 ¥1.20</span></div>
+        </div>
+      </div>
+      <p class="caption">优先级插入 + accent 光晕，ttl 2–6s 后回落驻留槽；critical 可插队。</p>
+    </div>
+
+    <div class="stage" style="margin-top:16px">
+      <div class="stage-label">03 · 中岛 — 单插件展开</div>
+      <div class="stage-center">
+        <div class="island-medium" role="img" aria-label="中岛 DeepSeek 余额详情">
+          <div class="im-head">
+            <div class="im-title"><span class="dot"></span>DeepSeek 余额</div>
+            <div class="im-actions">
+              <button type="button" class="btn">刷新</button>
+              <button type="button" class="btn">收起</button>
+            </div>
+          </div>
+          <div class="metrics">
+            <div class="metric">
+              <div class="label">余额</div>
+              <div class="value">¥2.56</div>
+            </div>
+            <div class="metric">
+              <div class="label">累计消费</div>
+              <div class="value">¥157.44</div>
+            </div>
+          </div>
+          <div class="im-foot">
+            <span class="status">正常</span>
+            <span class="meta">更新 14:59:37 · 下次 03:51</span>
+          </div>
+        </div>
+      </div>
+      <p class="caption">对齐现有截图：双指标卡 + 状态 + 更新倒计时；动作仅刷新 / 收起 / 升入工作台。</p>
+    </div>
+  </section>
+
+  <!-- WORKBENCH -->
+  <section id="workbench">
+    <div class="sec-head">
+      <h2>工作台 · 系统监控（默认）</h2>
+      <p class="sec-desc">右键触发；全局同时只启动一个工作台。模块可增删，参数保存后即时生效并保留。</p>
+    </div>
+    <div class="workbench" role="img" aria-label="系统监控工作台">
+      <div class="wb-top">
+        <div class="wb-brand">
+          <div class="wb-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+              <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+              <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+              <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+            </svg>
+          </div>
+          <div>
+            <h3>工作台</h3>
+            <p>Activity Island · Desktop Workbench</p>
+          </div>
+        </div>
+        <div class="wb-top-actions">
+          <button type="button" class="btn ghost">退出工作台</button>
+          <span class="chip"><span class="live"></span>实时监测</span>
+          <span class="chip" style="font-family:var(--mono)">15:01:05</span>
+        </div>
+      </div>
+      <div class="wb-body">
+        <div class="kpi-row">
+          <div class="kpi">
+            <div class="label"><span class="dot"></span>处理器</div>
+            <div class="value">5%</div>
+            <div class="sub">CPU 使用率</div>
+          </div>
+          <div class="kpi">
+            <div class="label"><span class="dot"></span>内存</div>
+            <div class="value">84%</div>
+            <div class="sub">26.7 GB / 31.6 GB</div>
+          </div>
+          <div class="kpi">
+            <div class="label"><span class="dot"></span>运行时间</div>
+            <div class="value">6小时 25分</div>
+            <div class="sub">系统连续运行</div>
+          </div>
+          <div class="kpi">
+            <div class="label"><span class="dot"></span>平台</div>
+            <div class="value">Windows</div>
+            <div class="sub">宿主系统环境</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="block-title">快捷启动 <span>常用软件 · 支持增删</span></div>
+          <div class="quick-row">
+            <div class="quick">VS</div>
+            <div class="quick">Term</div>
+            <div class="quick">Chrome</div>
+            <div class="quick">+</div>
+          </div>
+        </div>
+
+        <div class="mid-row">
+          <div class="panel">
+            <div class="block-title">DeepSeek 用量 <span>未配置令牌</span></div>
+            <div class="usage-grid">
+              <div class="usage-cell"><div class="l">余额</div><div class="v">-- CNY</div></div>
+              <div class="usage-cell"><div class="l">赠款额度</div><div class="v">-- CNY</div></div>
+              <div class="usage-cell"><div class="l">充值余额</div><div class="v">-- CNY</div></div>
+              <div class="usage-cell"><div class="l">上次检测</div><div class="v ready">-- 每 5 分钟</div></div>
+            </div>
+            <div class="token-row">
+              <span style="font-size:12px;color:var(--ink-muted)">认证令牌</span>
+              <input type="text" placeholder="粘贴 Bearer 令牌（只存本机）" readonly tabindex="-1" />
+              <button type="button" class="btn primary">保存</button>
+              <span style="font-size:12px;color:var(--ink-faint)">未配置</span>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="block-title">网络速率 <span>-- ms</span></div>
+            <div class="net-metrics">
+              <div>
+                <div class="l">↓ 下载</div>
+                <div class="v">0.1 <span style="font-size:12px;font-weight:400;color:var(--ink-muted)">MB/s</span></div>
+              </div>
+              <div>
+                <div class="l">↑ 上传</div>
+                <div class="v">0.0 <span style="font-size:12px;font-weight:400;color:var(--ink-muted)">MB/s</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="params">
+          <div class="block-title">参数配置 <span>偏好设置</span></div>
+          <div class="param-row">
+            <div>
+              <div>刷新频率</div>
+              <div class="hint">设置属于当前工作台，保存后生效并将保留</div>
+            </div>
+            <select class="select" tabindex="-1" aria-hidden="true">
+              <option>2 秒</option>
+            </select>
+          </div>
+          <div class="param-row">
+            <div>显示网络面板</div>
+            <button type="button" class="toggle" aria-label="显示网络面板（开）" tabindex="-1"></button>
+          </div>
+          <div class="param-row">
+            <div>主题色</div>
+            <div class="swatch" title="accent"></div>
+          </div>
+        </div>
+        <div class="wb-foot">
+          <span>Activity Island · 工作台</span>
+          <span>最后同步 15:01:05</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PLUGINS -->
+  <section id="plugins">
+    <div class="sec-head">
+      <h2>标志性插件</h2>
+      <p class="sec-desc">首发生态：有驻留价值、能产生临时消息、能贡献工作台模块。P1/P2 已与现有实现对齐。</p>
+    </div>
+    <div class="plugin-grid">
+      <article class="plugin-card">
+        <h3><span class="dot"></span>AI 余额哨兵</h3>
+        <div class="id">ds-balance</div>
+        <p>小岛驻留余额；中岛双卡明细；工作台用量与 Bearer 配置；低额度临时突出。</p>
+        <div class="tags"><span class="tag accent">小岛</span><span class="tag">中岛</span><span class="tag">工作台</span><span class="tag">临时消息</span></div>
+      </article>
+      <article class="plugin-card">
+        <h3><span class="dot"></span>系统脉搏</h3>
+        <div class="id">sys-pulse</div>
+        <p>CPU/内存驻留小岛；工作台四 KPI + 网速 + Top 进程；过载时临时突出。</p>
+        <div class="tags"><span class="tag accent">小岛</span><span class="tag">中岛</span><span class="tag">工作台</span></div>
+      </article>
+      <article class="plugin-card">
+        <h3><span class="dot ok"></span>下载雷达</h3>
+        <div class="id">dl-radar</div>
+        <p>活动下载速度占槽；中岛任务列表；完成/失败走临时消息通道。</p>
+        <div class="tags"><span class="tag accent">小岛</span><span class="tag">中岛</span><span class="tag">临时消息</span></div>
+      </article>
+      <article class="plugin-card">
+        <h3><span class="dot warn"></span>会议哨兵</h3>
+        <div class="id">meet-guard</div>
+        <p>会前驻留「15:30 评审」；会前 5 分钟突出并可一键入会；工作台今日日程。</p>
+        <div class="tags"><span class="tag accent">小岛</span><span class="tag">中岛</span><span class="tag">工作台</span></div>
+      </article>
+      <article class="plugin-card">
+        <h3><span class="dot ok"></span>专注番茄</h3>
+        <div class="id">focus-island</div>
+        <p>倒计时长期占岛；结束突出；专注中可降噪，仅 critical 打断。</p>
+        <div class="tags"><span class="tag accent">小岛</span><span class="tag">中岛</span></div>
+      </article>
+      <article class="plugin-card">
+        <h3><span class="dot"></span>剪贴板工作站</h3>
+        <div class="id">clip-station</div>
+        <p>默认不驻留；疑似密钥临时突出；工作台历史搜索与置顶。</p>
+        <div class="tags"><span class="tag">中岛</span><span class="tag accent">工作台</span><span class="tag">临时消息</span></div>
+      </article>
+      <article class="plugin-card">
+        <h3><span class="dot err"></span>GitHub 哨兵</h3>
+        <div class="id">gh-watch</div>
+        <p>PR/CI 状态驻留；失败与 Review 请求突出；工作台仓库与 Token 配置。</p>
+        <div class="tags"><span class="tag accent">小岛</span><span class="tag">中岛</span><span class="tag">工作台</span></div>
+      </article>
+      <article class="plugin-card">
+        <h3><span class="dot"></span>播放条</h3>
+        <div class="id">now-playing</div>
+        <p>曲名驻留可关；中岛控制条；默认低优先级，避免抢临时通道。</p>
+        <div class="tags"><span class="tag">小岛</span><span class="tag">中岛</span></div>
+      </article>
+      <article class="plugin-card">
+        <h3><span class="dot"></span>快捷启动</h3>
+        <div class="id">quick-launch</div>
+        <p>工作台模块：应用/脚本/文件夹网格；AI 可钉选；不强制占小岛。</p>
+        <div class="tags"><span class="tag accent">工作台</span></div>
+      </article>
+      <article class="plugin-card">
+        <h3><span class="dot warn"></span>网速链路</h3>
+        <div class="id">net-trace</div>
+        <p>节点切换或延迟飙升时突出；中/大岛看延迟与上下行；适合与系统脉搏并列。</p>
+        <div class="tags"><span class="tag">小岛</span><span class="tag">中岛</span><span class="tag">工作台</span></div>
+      </article>
+    </div>
+  </section>
+
+  <!-- WORKBENCH PACKS -->
+  <section id="wb-packs">
+    <div class="sec-head">
+      <h2>标志性工作台功能包</h2>
+      <p class="sec-desc">一次只启动一个；切换前提示替换。参数按工作台保存。</p>
+    </div>
+    <div class="wb-cards">
+      <div class="wb-card">
+        <h3>系统监控台</h3>
+        <div class="id">wb-sysmon · 默认</div>
+        <p>机器健康 + 插件用量 + 网速 + 快捷启动的全景。</p>
+        <ul>
+          <li>CPU / 内存 / 运行时间 / 平台</li>
+          <li>DeepSeek 用量与令牌</li>
+          <li>网络速率与刷新频率</li>
+        </ul>
+      </div>
+      <div class="wb-card">
+        <h3>开发者座舱</h3>
+        <div class="id">wb-devdock</div>
+        <p>本地工程与 API 成本同屏。</p>
+        <ul>
+          <li>Git 分支与工作区状态</li>
+          <li>本地端口 / CI / 构建</li>
+          <li>余额与命令垫片</li>
+        </ul>
+      </div>
+      <div class="wb-card">
+        <h3>成本与额度台</h3>
+        <div class="id">wb-spend</div>
+        <p>多服务商余额对比与阈值告警。</p>
+        <ul>
+          <li>DeepSeek / OpenAI / 云厂商</li>
+          <li>月消费曲线与导出</li>
+          <li>告警阈值配置</li>
+        </ul>
+      </div>
+      <div class="wb-card">
+        <h3>专注与日程台</h3>
+        <div class="id">wb-dayplan</div>
+        <p>一天的时间与专注策略。</p>
+        <ul>
+          <li>今日日程与入会</li>
+          <li>番茄统计与打断</li>
+          <li>免打扰策略</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS + AI -->
+  <section id="settings-ai">
+    <div class="sec-head">
+      <h2>设置与 AI 聊天</h2>
+      <p class="sec-desc">设置管开关与启动；AI 管生成与改写。安装前必须权限确认。</p>
+    </div>
+    <div class="compare">
+      <div class="split">
+        <nav class="split-nav" aria-label="设置导航示意">
+          <div class="nav-item active">插件管理</div>
+          <div class="nav-item">工作台管理</div>
+          <div class="nav-item">岛基础</div>
+          <div class="nav-item">临时消息</div>
+          <div class="nav-item">AI</div>
+          <div class="nav-item">关于</div>
+        </nav>
+        <div class="split-body">
+          <h3>插件管理</h3>
+          <div class="sub">开关即时生效 · 槽位排序 · 权限可见</div>
+          <div class="list-row">
+            <div>
+              <div class="name">AI 余额哨兵</div>
+              <div class="meta">ds-balance · 1.0.0 · net</div>
+            </div>
+            <div class="list-actions">
+              <span class="chip">小岛 · 中岛 · 工作台</span>
+              <button type="button" class="toggle" aria-label="启用" tabindex="-1"></button>
+            </div>
+          </div>
+          <div class="list-row">
+            <div>
+              <div class="name">系统脉搏</div>
+              <div class="meta">sys-pulse · 1.0.0 · sys</div>
+            </div>
+            <div class="list-actions">
+              <span class="chip">小岛 · 工作台</span>
+              <button type="button" class="toggle" aria-label="启用" tabindex="-1"></button>
+            </div>
+          </div>
+          <div class="list-row">
+            <div>
+              <div class="name">播放条</div>
+              <div class="meta">now-playing · 0.9.2</div>
+            </div>
+            <div class="list-actions">
+              <span class="chip">小岛</span>
+              <button type="button" class="toggle" aria-label="关闭" style="background:var(--surface-2)" tabindex="-1"></button>
+            </div>
+          </div>
+          <div class="list-row">
+            <div>
+              <div class="name">工作台：系统监控</div>
+              <div class="meta">wb-sysmon · 单例</div>
+            </div>
+            <div class="list-actions">
+              <button type="button" class="btn primary">启动</button>
+              <button type="button" class="btn ghost">设为默认</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ai-shell">
+        <div class="ai-head">
+          <span>AI 聊天 · 开发插件与工作台</span>
+          <span class="chip">沙箱预览</span>
+        </div>
+        <div class="ai-body">
+          <div class="bubble user">在小岛显示我的 GitHub 未读 PR，CI 红了要临时突出。</div>
+          <div class="bubble bot">
+            已生成草稿 <code>gh-watch@0.1.0</code><br />
+            · 驻留槽：<code>● PR 3 · CI 红</code><br />
+            · 权限：GitHub API（只读）<br />
+            · 临时消息：CI failed / Review requested<br />
+            预览中岛效果后可安装。
+          </div>
+          <div class="ai-actions">
+            <button type="button" class="btn primary">预览中岛</button>
+            <button type="button" class="btn">查看权限</button>
+            <button type="button" class="btn ghost">安装插件</button>
+          </div>
+          <div class="bubble bot">也可改写现有插件，例如「把余额阈值改成 ¥5，并开启桌面光晕提醒」。</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="site">
+    <div>灵动岛设计基线 · tokens 见 <code>DESIGN.md</code> · 产品结构见 <code>docs/PRODUCT.md</code></div>
+  </footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,74 @@
+# electron-builder 打包配置（Windows 安装包）
+#
+# 设计要点：
+# - appId 必须和 main.ts 里的 app.setAppUserModelId('com.activity-island.host') 保持一致，
+#   否则任务栏图标与通知分组会认不出这是同一个应用。
+# - 运行期真正需要的只有 4 个目录（见 files）。src/ scripts/ docs/ 都不进包。
+# - electron 放在 devDependencies 之后没有任何生产依赖，node_modules 不会被带进安装包。
+# - assets/ 走 extraResources 落到 resources/assets（**真实路径**）：
+#   nativeImage.createFromPath / Tray 对 asar 内的路径支持不稳定，
+#   图标是托盘与任务栏的关键，宁可放在 asar 外面。
+appId: com.activity-island.host
+productName: Activity Island
+copyright: Copyright © 2026 Activity Island
+
+directories:
+  output: release
+  buildResources: build
+
+# 直接使用 node_modules 里已解压的 Electron，而不是让 electron-builder 解压 zip。
+#
+# 为什么：默认流程是"解压到 release/win-unpacked.tmp，再 rename 成 win-unpacked"，
+# 而 Windows 上这个目录 rename 在本机稳定报 EPERM（实测：同一棵目录**可以删除**、
+# 子目录**可以重命名**，唯独顶层目录重命名一律失败；目标不存在也不是原因）。
+# 指定 electronDist 为已解压目录后，electron-builder 走的是 copyDir 分支，
+# 完全不经过那次 rename，打包就能稳定通过。
+electronDist: ../../node_modules/electron/dist
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - console-apps/**/*
+  - modules/**/*
+  - skills/**/*
+  - package.json
+
+extraResources:
+  - from: assets
+    to: assets
+    filter:
+      - '**/*'
+  # listener.ps1 必须以真实文件路径存在：PowerShell 读不了 asar 内的脚本。
+  - from: resources/notifications
+    to: notifications
+    filter:
+      - '**/*'
+
+asar: true
+compression: maximum
+
+win:
+  icon: assets/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # 安装包文件名带上版本，方便区分
+  artifactName: ${productName}-${version}-setup.${ext}
+
+nsis:
+  # 不强制一键安装：让用户能选安装位置、能看到装了去哪
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Activity Island
+  # 卸载时保留用户数据（插件、日志、设置都在 %APPDATA%，不该被卸载删掉）
+  deleteAppDataOnUninstall: false
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+  installerHeaderIcon: assets/icon.ico
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}

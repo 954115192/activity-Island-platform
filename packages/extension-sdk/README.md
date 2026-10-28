@@ -1,3 +1,5 @@
-# Extension SDK
+# 扩展 SDK
 
-Public, versioned APIs for user-specific integrations and automation. Extensions request narrow capabilities and receive filtered events through the platform router.
+为个性化服务接入和自动化提供带版本的公共接口。
+
+扩展申请范围明确的能力，并通过平台路由接收经过权限过滤的事件。

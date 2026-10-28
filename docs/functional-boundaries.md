@@ -1,89 +1,89 @@
-# Functional Boundaries
+# 功能职责与边界
 
-## Ownership matrix
+## 职责归属表
 
-| Area | Owner | Public to extensions? |
+| 功能领域 | 负责方 | 向扩展开放的方式 |
 |---|---|---|
-| Island window and geometry | Desktop shell | No |
-| Presentation priority and interruption | Desktop shell | Request API only |
-| Operating-system notification ingestion | Notification service | Subscribe through permission |
-| Notification history | Notification service | Filtered query API |
-| Device pairing and identity | Device service | Managed actions only |
-| Connection and reconnect | Device service | Status subscription only |
-| Transfer protocol | Transfer service | Create/query/cancel API |
-| Permission decisions | Permission service | Request and status API |
-| Official notification experience | Notification module | N/A |
-| Official phone experience | Device module | N/A |
-| Official transfer experience | Transfer module | N/A |
-| Search, history, and batch work | Workbench | N/A |
-| User integrations and automation | Extensions | Yes, within grants |
+| 灵动岛窗口与几何形态 | 桌面壳层 | 不开放 |
+| 展示优先级与打断策略 | 桌面壳层 | 仅开放请求接口 |
+| 操作系统通知接入 | 通知服务 | 授权后订阅 |
+| 通知历史 | 通知服务 | 经过过滤的查询接口 |
+| 设备配对与身份 | 设备服务 | 仅开放受管理的操作 |
+| 连接与重连 | 设备服务 | 仅开放状态订阅 |
+| 传输协议 | 传输服务 | 创建、查询与取消接口 |
+| 权限决策 | 权限服务 | 权限申请和状态接口 |
+| 官方通知体验 | 通知模块 | 官方产品功能 |
+| 官方手机连接体验 | 设备模块 | 官方产品功能 |
+| 官方传输体验 | 传输模块 | 官方产品功能 |
+| 搜索、历史和批量操作 | 工作台 | 复杂任务界面 |
+| 个性化接入与自动化 | 扩展 | 在授权范围内使用平台 |
 
-## What belongs in the desktop shell
+## 桌面壳层的职责
 
-- Window lifecycle.
-- Island state and animation.
-- Input routing and hit testing.
-- Presentation arbitration.
-- Rendering host and module lifecycle.
-- Surface-level accessibility and reduced-motion behavior.
+- 窗口生命周期。
+- 灵动岛状态与动画。
+- 输入路由与命中检测。
+- 展示仲裁。
+- 渲染宿主与模块生命周期。
+- 界面无障碍和减少动态效果设置。
 
-The shell receives facts and intents. It should not parse notification provider payloads or implement transfer chunks.
+壳层接收状态事实和操作意图。通知来源数据解析和文件分片传输由对应平台服务实现。
 
-## What belongs in platform services
+## 平台服务的职责
 
-- Identity and authorization.
-- OS integration.
-- Device sessions.
-- Transfer reliability.
-- Event normalization and routing.
-- Persistence and retention.
-- Metrics, diagnostics, and structured errors.
+- 身份与授权。
+- 操作系统集成。
+- 设备会话。
+- 传输可靠性。
+- 事件标准化与路由。
+- 持久化与保留策略。
+- 指标、诊断和结构化错误。
 
-Platform services are reusable infrastructure. They expose capabilities through contracts rather than exposing implementation objects.
+平台服务是可复用的基础设施，通过契约提供能力，避免向使用方暴露内部实现对象。
 
-## What belongs in official modules
+## 官方模块的职责
 
-Official modules own the product decisions that a user sees:
+官方模块负责用户能够直接感知的产品体验：
 
-- Which summary is shown in a small island view.
-- Which primary action appears in an expanded view.
-- How notification history is grouped.
-- How a transfer is selected, confirmed, paused, and retried.
-- Which device controls belong in settings or the workbench.
+- 小岛概览应显示什么摘要。
+- 展开界面应提供哪个主要操作。
+- 通知历史如何分组。
+- 传输如何选择、确认、暂停和重试。
+- 哪些设备控制应放入设置或工作台。
 
-## What belongs in extensions
+## 扩展的职责
 
-Extensions are for user-specific value:
+扩展用于实现用户各异的需求：
 
-- External service integrations.
-- Timers, trackers, and status cards.
-- Personal notification rules.
-- Shortcuts that use an approved platform action.
-- Domain-specific dashboards.
+- 外部服务接入。
+- 计时器、记录工具和状态卡片。
+- 个性化通知规则。
+- 调用获准平台操作的快捷方式。
+- 特定业务领域的面板。
 
-Extensions are not a replacement for the platform's device, permission, or transfer infrastructure.
+设备连接、权限和传输基础设施由平台统一提供。
 
-## Capability examples
+## 能力标识示例
 
-```text
-notifications.read:metadata
-notifications.read:content
-notifications.query:history
-devices.read:list
-devices.read:status
-transfers.create
-transfers.read:own
-transfers.cancel:own
-```
+| 能力标识 | 允许的操作 |
+|---|---|
+| `notifications.read:metadata` | 读取通知元数据 |
+| `notifications.read:content` | 读取通知正文 |
+| `notifications.query:history` | 查询通知历史 |
+| `devices.read:list` | 读取设备列表 |
+| `devices.read:status` | 读取设备状态 |
+| `transfers.create` | 创建传输 |
+| `transfers.read:own` | 查询自身创建的传输 |
+| `transfers.cancel:own` | 取消自身创建的传输 |
 
-Capabilities should remain narrow enough that a user can understand the grant on a settings screen.
+能力范围应足够具体，让用户在设置界面中能够理解授权含义。
 
-## API boundary rules
+## 接口边界规则
 
-1. No UI surface imports another layer's private implementation.
-2. No extension receives an unfiltered global event stream.
-3. No module opens a second connection to a paired device.
-4. No service returns raw credentials or private keys to a renderer.
-5. All asynchronous actions return a request or session ID.
-6. All public contracts include versioning and structured errors.
+1. 界面只能通过公开契约访问其他层。
+2. 扩展只能收到经过权限过滤的事件。
+3. 已配对设备的连接由平台复用，模块不能另开一套连接。
+4. 服务不能将原始凭据或私钥返回给渲染进程。
+5. 异步操作应返回请求标识或会话标识。
+6. 所有公共契约都应包含版本信息和结构化错误。
 

@@ -1,0 +1,237 @@
+/* 样式与配色对齐插件版 notify-island-bridge：使用宿主注入的 --island-* 主题变量，
+   小岛按内容自适应宽度（见 app.js 的 measureSmallWidth）。 */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  color: var(--island-ink, #e8ecf2);
+  font-family: var(--island-font, "Segoe UI", system-ui, -apple-system, sans-serif);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#app { position: relative; width: 100%; height: 100%; }
+
+.view { display: none; width: 100%; height: 100%; }
+.view.is-active { display: flex; }
+
+/* ---------- small：应用标记 + 通知标题（提醒时看到的就是这一态） ---------- */
+#small {
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  cursor: pointer;
+}
+#small > * { pointer-events: none; }
+
+.s-badge {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--island-accent, #4c9aff);
+  background: rgba(76, 154, 255, 0.22);
+}
+.s-badge.warn { color: #f0a020; background: rgba(240, 160, 32, 0.22); }
+.s-badge.critical { color: #e5534b; background: rgba(229, 83, 75, 0.22); }
+
+.s-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--island-ink, #e8ecf2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 正文：单行右对齐；无正文时整行隐藏，标题自动占满 */
+.s-sub {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  font-size: 11px;
+  color: var(--island-ink-dim, #9aa4b2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.s-sub:empty { display: none; }
+
+/* 量宽盒：离屏但参与排版，用与 #small 相同的字号/间距量出内容的自然宽度，
+   再随 island.alert 的 width 报给宿主（提醒条宽度按内容长短自适应）。 */
+.s-measure {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+/* ---------- medium：最新一条详情 ---------- */
+#medium {
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px 20px;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.m-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.m-title { font-size: 13px; font-weight: 600; }
+.spacer { flex: 1 1 auto; }
+
+.chip {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  color: var(--island-ink-dim, #9aa4b2);
+  background: rgba(127, 127, 127, 0.16);
+}
+.chip.ok { color: #3fb950; background: rgba(63, 185, 80, 0.14); }
+.chip.warn { color: #f0a020; background: rgba(240, 160, 32, 0.14); }
+
+.icon-btn {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--island-ink-dim, #9aa4b2);
+  font-family: inherit;
+  cursor: pointer;
+}
+.icon-btn:hover { background: rgba(127, 127, 127, 0.16); color: var(--island-ink, #e8ecf2); }
+.icon-btn svg { width: 16px; height: 16px; }
+
+/* 详情卡：沿用插件版的 12px 圆角与低对比底色 */
+.card {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(127, 127, 127, 0.10);
+  overflow: hidden;
+}
+
+.card-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.card-app {
+  flex: 0 0 auto;
+  max-width: 60%;
+  font-size: 11px;
+  color: var(--island-ink-dim, #9aa4b2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card-time {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--island-ink-dim, #9aa4b2);
+  font-variant-numeric: tabular-nums;
+}
+.card-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card-body {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--island-ink-dim, #9aa4b2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+.card-repeat { font-size: 11px; color: var(--island-ink-dim, #9aa4b2); opacity: .75; }
+
+/* ---------- 提示 / 脚注 ---------- */
+.tip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--island-ink-dim, #9aa4b2);
+}
+.tip svg { flex: 0 0 auto; width: 16px; height: 16px; margin-top: 1px; color: #f0a020; }
+.tip b { color: var(--island-ink, #e8ecf2); font-weight: 600; }
+
+.m-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--island-ink-dim, #9aa4b2);
+}
+.endpoint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.empty {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--island-ink-dim, #9aa4b2);
+}
+
+/* 剩余空间留在卡片下方，不把内容撑满 */
+#medium .spacer-fill { flex: 1 1 auto; }

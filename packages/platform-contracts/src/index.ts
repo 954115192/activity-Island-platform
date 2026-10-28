@@ -1,30 +1,5 @@
-export type EventSensitivity = 'public' | 'private' | 'sensitive'
+// 平台契约包入口
+// 每个领域的契约独立成文件，此处统一导出；消费方只通过包名导入。
 
-export type EventSource = 'desktop' | 'phone' | 'platform' | 'module' | 'extension'
-
-export interface DomainEvent<TPayload = unknown> {
-  eventId: string
-  type: string
-  version: number
-  occurredAt: string
-  source: EventSource
-  subject?: string
-  sensitivity: EventSensitivity
-  payload: TPayload
-}
-
-export type ServiceErrorCode =
-  | 'permission-denied'
-  | 'not-found'
-  | 'unavailable'
-  | 'conflict'
-  | 'invalid-request'
-  | 'cancelled'
-  | 'internal'
-
-export interface ServiceError {
-  code: ServiceErrorCode
-  message: string
-  retryable: boolean
-  requestId?: string
-}
+export * from './events.ts'
+export * from './notification.ts'

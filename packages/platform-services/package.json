@@ -1,0 +1,15 @@
+{
+  "name": "@activity-island/platform-services",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@activity-island/platform-contracts": "0.1.0"
+  }
+}

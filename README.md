@@ -1,62 +1,61 @@
 # Activity Island Platform
 
-Activity Island Platform is a desktop-first information and action platform for Windows and mobile devices.
+Activity Island Platform 是面向 Windows 电脑与手机的跨设备信息和操作平台。
 
-It gives users a quiet, glanceable surface for notifications, device state, transfers, and short actions. A desktop island is the primary presentation surface. A companion phone application provides the second device endpoint. A platform service layer owns connection, permissions, event routing, and transfer reliability. Official modules provide the default product experience. Extensions add personal workflows and integrations.
+产品以桌面灵动岛作为主要展示入口，让用户快速看到通知、设备状态、传输进度和任务结果，并完成简短操作。手机配套应用提供另一端的连接与交互；平台服务负责连接、权限、事件路由和传输可靠性；官方模块提供开箱即用的核心功能；扩展支持个人工作流与外部服务接入。
 
-## Product promise
+## 产品价值
 
-The product makes important events visible without opening a large application and makes common cross-device actions short enough to complete from the island.
+用户无需打开大型应用，就能看到重要事件，并在灵动岛上完成常见的跨设备操作。
 
-The product is organized around five responsibilities:
+产品围绕五类职责组织：
 
-- **Desktop shell** presents information and owns interaction priority.
-- **Platform services** connect devices, protect data, and provide reliable primitives.
-- **Official modules** deliver notification, device, and transfer experiences out of the box.
-- **Extensions** add user-specific integrations and automation.
-- **Workbench** handles search, history, configuration, and other dense tasks.
+- **桌面壳层**：呈现信息，管理交互优先级。
+- **平台服务**：连接设备、保护数据，提供可靠的基础能力。
+- **官方模块**：提供通知、设备和文件传输等默认体验。
+- **扩展**：支持个性化服务接入与自动化。
+- **工作台**：承接搜索、历史、配置和其他复杂任务。
 
-## Repository layout
+## 仓库结构
 
 ```text
 apps/
-  desktop/                 Windows desktop application
-  phone/                   Companion mobile application
+  desktop/                 Windows 桌面应用
+  phone/                   手机配套应用
 packages/
-  desktop-shell/           Island window and desktop interaction runtime
-  platform-services/       Notifications, devices, transfers, permissions, storage
-  platform-contracts/      Versioned domain types and service contracts
-  official-modules/        First-party product modules
-  extension-sdk/           Public extension API and tooling
-  shared-ui/               Cross-surface visual primitives
+  desktop-shell/           灵动岛窗口与桌面交互运行时
+  platform-services/      通知、设备、传输、权限与存储服务
+  platform-contracts/     带版本的领域类型与服务契约
+  official-modules/       官方功能模块
+  extension-sdk/          公共扩展接口与开发工具
+  shared-ui/              多种界面共用的视觉基础组件
 tests/
-  contracts/               Contract and compatibility tests
-  integration/              Service integration tests
-  e2e/                     End-to-end product flows
-docs/                      Product and engineering decisions
-tools/                     Local development and release utilities
+  contracts/              契约与兼容性测试
+  integration/            服务集成测试
+  e2e/                    端到端用户流程测试
+docs/                     产品与工程决策文档
+tools/                    本地开发与发布工具
 ```
 
-## Development order
+## 开发顺序
 
-Build the platform in this order:
+1. 定义契约、身份、权限和事件公共结构。
+2. 实现桌面壳层和通知展示流程。
+3. 实现设备配对与连接生命周期。
+4. 实现可靠的局域网文件传输。
+5. 完善官方模块和工作台流程。
+6. 开放扩展能力、模拟器与自动化接口。
+7. 增加其他手机同步功能。
 
-1. Contracts, identity, permissions, and event envelopes.
-2. Desktop shell and the notification presentation path.
-3. Device pairing and connection lifecycle.
-4. Reliable local-network file transfer.
-5. Official modules and workbench flows.
-6. Extension capabilities, simulators, and automation.
-7. Additional mobile synchronization features.
+首个完整功能流程是：**Windows 通知 → 灵动岛提醒 → 展开详情 → 执行来源操作**。
 
-The first complete product slice is: **Windows notification → desktop island alert → expanded detail → source action**.
+## 文档入口
 
-## Documentation
-
-- [Product foundation](docs/product-foundation.md)
-- [System architecture](docs/system-architecture.md)
-- [Functional boundaries](docs/functional-boundaries.md)
-- [Delivery roadmap](docs/delivery-roadmap.md)
-- [Development method](docs/development-method.md)
-- [Architecture decisions](docs/adr-0001-product-shape.md)
+- [产品定位与基础原则](docs/product-foundation.md)
+- [系统架构](docs/system-architecture.md)
+- [通知内置能力整合设计](docs/notification-integration-design.md)
+- [功能职责与边界](docs/functional-boundaries.md)
+- [开发路线与交付计划](docs/delivery-roadmap.md)
+- [开发方法与完成标准](docs/development-method.md)
+- [架构决策：产品形态与职责边界](docs/adr-0001-product-shape.md)
 

@@ -1,3 +1,5 @@
-# Shared UI
+# 共用界面组件
 
-Cross-surface visual primitives and design tokens. Surface-specific behavior remains in the desktop shell, official modules, or phone application.
+提供多种界面共用的视觉基础组件和设计变量。
+
+特定界面的行为由桌面壳层、官方模块或手机应用负责。

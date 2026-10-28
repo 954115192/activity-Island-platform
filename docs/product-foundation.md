@@ -1,87 +1,89 @@
-# Product Foundation
+# 产品定位与基础原则
 
-## Product definition
+## 产品定义
 
-Activity Island Platform is a cross-device information and action surface. It connects a Windows desktop and a user's phone, turns important events into glanceable updates, and keeps short actions close to the user's current context.
+Activity Island Platform 是一个跨设备的信息与操作入口。它连接 Windows 电脑和用户的手机，将重要事件转化为一眼可读的动态信息，让用户在当前工作环境中完成简短操作。
 
-The product is deliberately smaller than a full desktop suite and larger than a visual widget. Its job is to make an event or task understandable within seconds and actionable within a few interactions.
+产品围绕轻量任务展开：用户应能在几秒内理解事件或任务，并通过少量交互完成处理。较复杂的工作交给工作台。
 
-## User problems
+## 用户问题
 
-Users repeatedly switch between notification centers, messaging devices, file windows, and status panels to answer small questions:
+用户经常需要在通知中心、手机、文件窗口和状态面板之间切换，才能回答一些简单问题：
 
-- What just happened?
-- Does this need a response?
-- Is my phone connected?
-- Can I move this file to my other device?
-- Did the transfer finish?
+- 刚才发生了什么？
+- 这条信息需要回应吗？
+- 手机连接上了吗？
+- 能把这个文件发到另一台设备吗？
+- 文件传输完成了吗？
 
-The product answers these questions from one low-distraction surface while keeping detailed work in a larger workbench.
+产品通过一个低打扰的入口回答这些问题，详细操作则在工作台中完成。
 
-## Core experience
+## 核心体验
 
-### Glance
+### 看一眼
 
-The island shows one concise fact: a notification, device state, transfer progress, or task result.
+灵动岛显示一个简明事实，例如通知、设备状态、传输进度或任务结果。
 
-### Inspect
+### 看详情
 
-The user expands the island to see context, history, and the primary action.
+用户展开灵动岛，查看上下文、历史和主要操作。
 
-### Act
+### 做操作
 
-The user performs a short action such as open, dismiss, pause, retry, accept, send, or switch device.
+用户可以执行打开、忽略、暂停、重试、接受、发送、切换设备等简短操作。
 
-### Continue
+### 继续处理
 
-The user can move to a full workbench when the task needs search, configuration, batching, or history.
+任务需要搜索、配置、批量处理或历史查询时，用户进入完整工作台。
 
-## Product principles
+## 产品原则
 
-1. **Glance before density.** The island communicates one current fact before it exposes detail.
-2. **Platform before duplication.** Shared mechanisms are implemented once and exposed through contracts.
-3. **Official paths before configuration.** Core capabilities work after installation and permission setup.
-4. **Least privilege by default.** Access to notification content, devices, and files is explicit and revocable.
-5. **Recoverable operations.** Connection and transfer failures have a visible state and a next action.
-6. **Extensions add value without owning infrastructure.** Extensions use platform services instead of replacing them.
-7. **The workbench absorbs complexity.** The island remains lightweight even when the product grows.
+1. **先概览，再详情。** 灵动岛首先传达一个当前事实，再逐步展示更多内容。
+2. **公共机制统一实现。** 共享能力由平台提供，通过契约供各功能使用。
+3. **核心功能开箱即用。** 用户安装并完成必要授权后，即可使用核心功能。
+4. **默认最小权限。** 通知内容、设备和文件访问必须明确授权，并且可以撤销。
+5. **操作失败可以恢复。** 连接和传输失败必须有明确状态与下一步操作。
+6. **扩展复用平台基础能力。** 扩展通过平台服务增加功能，避免各自实现公共基础设施。
+7. **工作台承接复杂度。** 产品功能增加时，灵动岛仍应保持轻量。
 
-## Product surfaces
+## 产品界面
 
-| Surface | Purpose | Typical duration |
-|---|---|---:|
-| Island | Notice and perform a short action | Seconds |
-| Desktop settings | Configure permissions, modules, devices, and extensions | Minutes |
-| Workbench | Search, review, batch, and manage | Minutes to hours |
-| Phone app | Authorize, send, receive, and mirror selected events | Seconds to minutes |
+| 界面 | 用途 | 典型使用时长 |
+|---|---|---|
+| 灵动岛 | 查看动态并完成简短操作 | 数秒 |
+| 桌面设置 | 配置权限、模块、设备和扩展 | 数分钟 |
+| 工作台 | 搜索、查看历史、批量操作与管理 | 数分钟至数小时 |
+| 手机应用 | 授权、发送、接收和同步指定事件 | 数秒至数分钟 |
 
-## Core user journeys
+## 核心用户流程
 
-### Desktop notification
+### 电脑通知
 
-1. A Windows notification arrives.
-2. The platform normalizes it and assigns an event identity.
-3. The notification module requests an island alert.
-4. The user reads the summary or expands it.
-5. The user opens the source, dismisses the item, or leaves it in history.
+1. Windows 通知到达。
+2. 平台将通知标准化，并分配事件标识。
+3. 通知模块请求灵动岛展示提醒。
+4. 用户阅读摘要或展开详情。
+5. 用户打开来源应用、忽略通知，或将其保留在历史中。
 
-### File transfer
+### 文件传输
 
-1. The user selects a paired device.
-2. The platform creates a transfer session.
-3. The receiving device confirms when required.
-4. The island shows progress and the workbench shows the queue.
-5. The transfer completes, can be opened, or can be retried after failure.
+1. 用户选择已配对设备。
+2. 平台创建传输会话。
+3. 必要时，由接收设备确认。
+4. 灵动岛显示进度，工作台显示传输队列。
+5. 传输完成后打开文件，或在失败后重试。
 
-### Phone notification mirror
+### 手机通知同步
 
-1. The phone app receives an allowed notification.
-2. The phone applies its local privacy and application filters.
-3. The desktop applies its own display policy.
-4. The event appears with a device source and stable deduplication identity.
-5. The user can mute, open, or manage the source according to supported actions.
+1. 手机应用收到允许同步的通知。
+2. 手机端应用本地隐私和应用过滤规则。
+3. 电脑端应用自己的展示策略。
+4. 通知携带设备来源和稳定的去重标识进入展示流程。
+5. 用户根据支持的能力进行静音、打开或来源管理。
 
-## Non-goals
+## 产品范围
 
-The initial product does not attempt to replace a messaging client, cloud drive, phone launcher, remote desktop, or general automation platform. It does not promise unrestricted access to every notification or every mobile operating system capability.
+初期产品专注于通知、状态和跨设备轻操作。聊天客户端、云盘、手机桌面、远程桌面和通用自动化平台不属于初期范围。
+
+具体功能受操作系统能力与授权限制约束，不能默认所有通知和所有手机系统能力都可访问。
 

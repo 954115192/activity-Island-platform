@@ -1,3 +1,3 @@
-# Contract tests
+# 契约测试
 
-Compatibility and capability tests for public platform contracts.
+验证公共平台契约的兼容性与能力授权行为。

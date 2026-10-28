@@ -1,3 +1,5 @@
-# Official modules
+# 官方功能模块
 
-First-party experiences for notifications, devices, transfers, and other core product capabilities. Modules compose platform services and render on the island, settings, and workbench surfaces.
+提供通知、设备、传输和其他核心产品能力的官方体验。
+
+模块组合平台服务，在灵动岛、设置和工作台界面中展示。

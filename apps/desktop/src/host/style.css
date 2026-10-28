@@ -1,0 +1,60 @@
+@import '../../console-apps/theme.css';
+
+* { box-sizing: border-box; }
+html, body, #host-root { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; color: var(--ink); font-family: var(--font); }
+#host-root { pointer-events: none; }
+body { pointer-events: none; }
+.host-surface { position: relative; width: 100%; height: 100%; background: transparent; }
+/* 小岛是"签名几何"里的胶囊：38px 高时 Chromium 会把半径压到短边一半（19px），
+   所以这里写 28 与写 999 画出来是同一个形状 —— 宿主 JS 也算同一组值（见 src/host/main.ts
+   baseRadius），CSS 与下发给插件裁剪的半径必须一致，否则黑壳的角会从插件后面露出来。 */
+/* 磨砂边界环：常驻、无色。亮背景上与背景对比度趋近于零（视觉上等于不存在），
+   黑壁纸/深色窗口后面自然浮现——Apple 灵动岛同款策略（边界即物质，不做背景检测）。
+   画在胶囊外侧（box-shadow 外扩），插件的原生视图不会盖住它；
+   提醒光晕（data-alert）出现时整体覆盖，语义色优先。 */
+.island-shell {
+  position: absolute; left: 50%; overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--island-bg); border: 0;
+  pointer-events: auto;
+  transform: translateX(-50%) translateZ(0);
+  transform-origin: center top;
+  will-change: width, height, top;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, .12),
+    0 0 14px 1px rgba(255, 255, 255, .06),
+    0 8px 32px rgba(0, 0, 0, .45);
+}
+/* 收起态触发条也要能看见：保留和胶囊一致的 1px 磨砂环 + 轻微光晕，
+   只把投影收紧一点（64×8 不需要 32px 的大阴影）。触发条太小时没有这圈边界
+   会和桌面背景融在一起，看起来像"灵动岛消失了"。 */
+.island-shell[data-collapsed="true"] {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, .22),
+    0 0 14px 2px rgba(255, 255, 255, .10),
+    0 6px 24px rgba(0, 0, 0, .45);
+}
+.island-shell[data-mode="idle"] { border-radius: 19px; }
+/* 收缩成顶部横条时必须是直角矩形，否则 64×8 的条会被圆角吃掉整个可见区 */
+.island-shell[data-collapsed="true"] { border-radius: 4px; }
+
+/* 临时消息：岛缘 1px 描边 + 光晕，按 level 取语义色；ttl 到期后宿主撤掉 data-alert。
+   --alert-ring / --alert-glow 由渲染层在插件传了自定义 color 时注入（未传时用下面的语义色兜底）。
+   info 只给描边不给光晕（信息级提醒不该在桌面发光）；颜色不是唯一通道 ——
+   插件在覆盖态里同时给出文字（如「余额偏低」），见 DESIGN.md §4。 */
+.island-shell[data-alert="info"] { box-shadow: 0 0 0 1px var(--alert-ring, var(--temp-glow)); }
+.island-shell[data-alert="warn"] { box-shadow: 0 0 0 1px var(--alert-ring, var(--warning)), 0 0 24px var(--alert-glow, rgba(245, 158, 11, .35)); }
+.island-shell[data-alert="critical"] { box-shadow: 0 0 0 1px var(--alert-ring, var(--danger)), 0 0 24px var(--alert-glow, rgba(239, 68, 68, .38)); }
+
+.idle-clock { display: grid; width: 100%; height: 100%; place-items: center; padding: 0; border: 0; background: transparent; color: var(--ink); font: 600 15px/1 var(--font); font-variant-numeric: tabular-nums; }
+.island-separators { position: absolute; inset: 0; pointer-events: none; }
+.island-separators i { position: absolute; top: 9px; bottom: 9px; width: 1px; background: var(--stroke); }
+/* 命中目标 ≥28px：20px 高在鼠标下太难点（DESIGN.md §4） */
+.island-overflow {
+  position: absolute; top: 50%; height: 28px; padding: 0 9px;
+  transform: translateY(-50%);
+  border: 1px solid var(--stroke); border-radius: var(--r-ctl);
+  background: var(--surface-2); color: var(--ink-muted);
+  font: 600 12px/1 var(--font); cursor: pointer;
+}
+.island-overflow:hover { background: var(--surface-1); color: var(--ink); }

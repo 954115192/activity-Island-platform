@@ -1,3 +1,5 @@
-# Platform services
+# 平台服务
 
-Owns notification adapters, device identity and sessions, transfer reliability, permissions, event routing, and platform storage. Services are independently testable and restartable.
+负责通知适配、设备身份与会话、可靠传输、权限、事件路由和平台存储。
+
+各服务应支持独立测试与重启。

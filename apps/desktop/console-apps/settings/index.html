@@ -1,0 +1,2287 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Activity Island 控制台管理</title>
+  <link rel="stylesheet" href="../theme.css" />
+  <style>
+    :root { color-scheme: dark; font-family: var(--font); color: var(--ink); background: var(--panel-bg); }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: var(--panel-bg); }
+    body { display: flex; height: 100%; flex-direction: column; overflow: hidden; background: radial-gradient(circle at 80% 0%, var(--accent-soft), transparent 34%), var(--panel-bg); }
+    .window-bar { position: relative; z-index: 30; height: 42px; flex: 0 0 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; border-bottom: 1px solid var(--stroke); background: var(--panel-bg); -webkit-app-region: drag; }
+    .window-bar strong { font-size: 13px; font-weight: 600; }
+    button { font: inherit; color: inherit; cursor: pointer; }
+    .close { width: 30px; height: 30px; border: 0; border-radius: 7px; background: transparent; font-size: 20px; -webkit-app-region: no-drag; }
+    .close:hover { background: var(--stroke); }
+    .layout { display: grid; flex: 1 1 auto; min-height: 0; grid-template-columns: 190px minmax(0, 1fr); }
+    aside { min-height: 0; overflow: auto; padding: 20px 12px; border-right: 1px solid var(--stroke); background: var(--surface-1); }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 0 9px 22px; }
+    .mark { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 8px; background: linear-gradient(135deg,var(--accent),var(--accent)); }
+    .brand small { display: block; margin-top: 2px; color: var(--ink-faint); font-size: 11px; }
+    nav { display: grid; gap: 5px; }
+    nav button { padding: 10px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-muted); text-align: left; font-size: 12px; }
+    nav button.active, nav button:hover { background: var(--accent-soft); color: #fff; }
+    .primary { padding: 9px 10px; border: 1px solid var(--accent-line); border-radius: 8px; background: var(--accent-soft); font-size: 11px; }
+    main { min-width: 0; min-height: 0; padding: 34px 38px; overflow: auto; }
+    h1 { margin: 0; font-size: 24px; letter-spacing: -.04em; }
+    .subtitle { margin: 8px 0 24px; color: var(--ink-muted); font-size: 12px; }
+    .card { margin-bottom: 14px; padding: 18px; border: 1px solid var(--stroke); border-radius: 14px; background: var(--surface-1); }
+    .card-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+    .card h2 { margin: 0; font-size: 14px; }
+    .hint, .note { color: var(--ink-faint); font-size: 11px; }
+    .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .choice { padding: 13px; border: 1px solid var(--stroke); border-radius: 10px; background: var(--surface-1); text-align: left; }
+    .choice.active { border-color: var(--accent); background: var(--accent-soft); }
+    .choice b, .choice small { display: block; }
+    .choice small { margin-top: 5px; color: var(--ink-muted); font-size: 11px; }
+    .line { display: flex; align-items: center; gap: 10px; }
+    input[type=number] { width: 90px; padding: 8px; border: 1px solid var(--stroke); border-radius: 8px; background: var(--surface-2); color: #fff; }
+    input[type=range] { flex: 1; accent-color: var(--accent); }
+    .value { min-width: 44px; color: var(--ink-muted); font-size: 12px; }
+    .toggle-row { display: flex; align-items: flex-start; gap: 9px; color: var(--ink-muted); font-size: 12px; cursor: pointer; }
+    .toggle-row input { width: 16px; height: 16px; margin-top: 1px; accent-color: var(--accent); }
+    .toggle-row small { display: block; margin-top: 4px; color: var(--ink-faint); font-size: 11px; line-height: 1.6; }
+    #launch-at-login-status { display: block; margin-top: 8px; }
+    /* 弹窗只覆盖顶栏以下：窗口标题与关闭键任何时候都能点到。 */
+    .modal-mask { position: fixed; inset: 42px 0 0 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: var(--scrim); backdrop-filter: blur(4px); }
+    .modal { display: flex; flex-direction: column; width: min(620px, 100%); max-height: min(560px, 100%); overflow: hidden; padding: 18px; border: 1px solid var(--stroke); border-radius: 14px; background: var(--panel-bg); box-shadow: 0 24px 70px rgba(0,0,0,.55); }
+    .modal-head { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    /* 只有内容区滚动：标题和关闭键必须一直留在可视区。 */
+    #plugin-modal-content { flex: 1 1 auto; min-height: 0; overflow: auto; }
+    .modal-head h2 { margin: 0; font-size: 16px; }
+    .modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+    .modal-actions .hint { flex: 1; }
+    /* 工作台：列表只显示「名字 + 示例图」，克制一点；点进去才看详情 */
+    .page-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px; }
+    .page-actions { display: flex; align-items: center; gap: 8px; padding-bottom: 20px; }
+    .wb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+    .wb-card { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid var(--stroke); border-radius: 12px; background: var(--surface-1); color: inherit; text-align: left; cursor: pointer; }
+    .wb-card:hover { border-color: var(--accent-line); background: var(--surface-2); }
+    .wb-thumb { position: relative; display: grid; place-items: center; width: 100%; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 8px; background: linear-gradient(140deg, var(--surface-1), var(--panel-bg)); }
+    .wb-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .wb-thumb .letter { font-size: 28px; font-weight: 700; color: var(--ink-faint); }
+    .wb-name { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
+    .wb-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .wb-meta { color: var(--ink-faint); font-size: 11px; }
+    .wb-flag { padding: 1px 6px; border-radius: 999px; background: var(--success-soft); color: var(--success-ink); font-size: 11px; }
+    .wb-detail-thumb { width: 100%; max-height: 190px; overflow: hidden; border-radius: 10px; background: linear-gradient(140deg, var(--surface-1), var(--panel-bg)); }
+    .wb-detail-thumb img { width: 100%; display: block; }
+    .wb-kv { display: grid; grid-template-columns: 76px 1fr; gap: 4px 10px; margin-top: 12px; font-size: 11px; color: var(--ink-muted); }
+    .wb-kv b { color: var(--ink-faint); font-weight: 400; }
+    .wb-kv code { word-break: break-all; }
+    /* 工作台：能力告知是重点，所以信任提示单独一张卡，不用普通 note 的灰字 */
+    .card.trust { border-color: var(--warning-line); background: var(--warning-soft); color: var(--warning-ink); font-size: 12px; line-height: 1.7; }
+    .wb-caps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .wb-cap { padding: 5px 9px; border: 1px solid var(--stroke); border-radius: 999px; background: var(--surface-1); color: var(--ink); font-size: 11px; }
+    .wb-cap.risky { border-color: var(--danger-line); background: var(--danger-soft); color: var(--danger-ink); }
+    .wb-cap.new { border-color: var(--warning-line); background: var(--warning-soft); color: var(--warning-ink); }
+    .wb-active { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border: 1px solid var(--success-line); border-radius: 999px; background: var(--success-soft); color: var(--success-ink); font-size: 11px; }
+    .wb-badge { margin-left: 6px; padding: 2px 7px; border-radius: 999px; background: var(--stroke); color: var(--ink-muted); font-size: 11px; }
+    .danger { padding: 7px 10px; border: 1px solid var(--danger-line); border-radius: 7px; background: transparent; color: var(--danger-ink); font-size: 11px; }
+    .ghost { width: 26px; padding: 6px 0; border: 1px solid var(--stroke); border-radius: 7px; background: var(--surface-1); color: var(--ink-muted); font-size: 11px; }
+    .ghost:hover:not(:disabled) { background: var(--stroke); color: #fff; }
+    .ghost:disabled { opacity: .3; cursor: default; }
+    .ghost.wide { width: auto; padding: 6px 9px; }
+    #plugin-log-body { max-height: 260px; margin: 10px 0 0; overflow: auto; color: var(--ink); font: 11px/1.6 var(--mono); white-space: pre-wrap; word-break: break-all; }
+    .issue { padding: 8px 10px; border-bottom: 1px solid var(--surface-2); }
+    .issue:last-child { border-bottom: 0; }
+    .issue b { display: block; color: var(--danger-ink); font-size: 12px; }
+    .issue small { display: block; margin-top: 3px; color: var(--ink-faint); font-size: 11px; word-break: break-all; }
+    .params-row { padding: 4px 0 14px; }
+    /* 操作反馈一律内嵌在页面里，不用原生 alert/confirm 弹窗 */
+    #plugin-notice { margin-bottom: 10px; border-color: var(--danger-line); color: var(--danger-ink); font-size: 12px; }
+    .danger.confirming { border-color: transparent; background: var(--danger); color: #fff; }
+    .params { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--stroke); border-radius: 10px; background: var(--surface-1); }
+    .param { display: grid; gap: 5px; font-size: 11px; color: var(--ink-muted); }
+    .param small { display: block; margin-top: 2px; color: var(--ink-faint); font-size: 11px; }
+    .param input, .param select, .param textarea { padding: 7px 9px; border: 1px solid var(--stroke); border-radius: 8px; background: var(--surface-1); color: var(--ink); font: inherit; font-size: 12px; }
+    .param input[type="checkbox"] { width: 16px; height: 16px; }
+    /* 通知页：状态点、令牌、开关行 */
+    .notif-dot { font-weight: 600; }
+    .notif-dot.ok { color: var(--success, #34d399); }
+    .notif-dot.warn { color: var(--warning-ink, #fbbf24); }
+    .notif-code { padding: 4px 8px; border: 1px solid var(--stroke); border-radius: 7px; background: #0a0a0c; color: var(--ink-muted); font: 11.5px/1.5 var(--mono, ui-monospace, Consolas, monospace); user-select: all; }
+    .notif-toggle { padding: 7px 0; border-top: 1px solid var(--stroke-soft); }
+    .notif-toggle:first-child { padding-top: 0; border-top: 0; }
+    .params .notif-toggle { color: var(--ink-muted); font-size: 11px; }
+    /* 说明页 */
+    /* 限宽：正文行长控制在可读范围，避免在宽窗口里一行拉到 40+ 字 */
+    #guide .card { max-width: 780px; }
+    .guide-text { margin: 0; color: var(--ink-muted); font-size: 12.5px; line-height: 1.8; max-width: 720px; }
+    .guide-text code, .note code { padding: 1px 5px; border-radius: 5px; background: var(--surface-2); color: var(--ink); font: 11.5px var(--mono); }
+    .guide-shapes { display: grid; gap: 10px; margin-top: 14px; }
+    .shape-row { display: flex; align-items: baseline; gap: 14px; font-size: 12px; line-height: 1.7; color: var(--ink-muted); }
+    .shape-row b { flex: 0 0 auto; width: 84px; color: var(--ink); font-weight: 600; font-size: 12px; }
+    .shape-row span { flex: 1; min-width: 0; }
+    .guide-code { margin: 14px 0 0; padding: 13px 15px; overflow: auto; border: 1px solid var(--stroke); border-radius: 10px; background: #0a0a0c; color: var(--ink-muted); font: 11.5px/1.75 var(--mono); white-space: pre; max-width: 720px; }
+    .test-form { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--stroke); border-radius: 10px; background: var(--surface-1); max-width: 560px; }
+    .test-form .param input, .test-form .param select { width: 100%; }
+    .test-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+    .test-actions .primary { padding: 8px 12px; }
+    .test-actions .primary:disabled { opacity: .5; cursor: default; }
+    #test-result { margin: 10px 0 0; min-height: 16px; }
+    #test-result.ok { color: var(--success-ink); }
+    #test-result.bad { color: var(--danger-ink); }
+    /* 使用说明：plugin.json 的 guide 由宿主渲染。纯文本结构，不支持自由 HTML。 */
+    .guide { display: grid; gap: 14px; }
+    .guide-summary { margin: 0; color: var(--ink); font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+    .guide-requires { margin: 0; padding: 10px 12px 10px 28px; border: 1px solid var(--stroke); border-radius: 10px; background: var(--surface-1); color: var(--ink-muted); font-size: 12px; line-height: 1.7; }
+    .guide-section { display: grid; gap: 10px; }
+    .guide-section > h3 { margin: 0; color: var(--ink-faint); font-size: 11px; font-weight: 500; letter-spacing: .04em; }
+    .guide-step, .guide-trouble { padding: 12px; border: 1px solid var(--stroke); border-radius: 10px; background: var(--surface-1); }
+    .guide-step h4 { margin: 0 0 6px; font-size: 13px; }
+    .guide-step p, .guide-trouble p { margin: 0; color: var(--ink-muted); font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
+    .guide-trouble b { display: block; font-size: 12px; }
+    .guide-trouble p { margin-top: 5px; }
+    .guide-code { position: relative; margin-top: 10px; }
+    .guide-code pre { margin: 0; padding: 10px 58px 10px 12px; overflow: auto; border: 1px solid var(--stroke); border-radius: 8px; background: var(--panel-bg); color: var(--ink); font: 11px/1.6 var(--mono); white-space: pre-wrap; word-break: break-all; }
+    .guide-code button { position: absolute; top: 6px; right: 6px; background: var(--surface-1); }
+    .guide-actions, .guide-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .guide-links { margin-top: 0; }
+    .guide-meta { margin: 0; color: var(--ink-faint); font-size: 11px; line-height: 1.7; }
+    /* ============================================================ 插件页 */
+    .plugin-page { width: 100%; max-width: 900px; margin: 0 auto; }
+    .plugin-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+    .plugin-sub { margin: 7px 0 0; color: var(--ink-muted); font-size: 12px; }
+    .plugin-head-actions { display: flex; align-items: center; gap: 8px; padding-top: 2px; }
+    .plugin-search { position: relative; display: flex; align-items: center; }
+    .plugin-search svg { position: absolute; left: 9px; color: var(--ink-faint); pointer-events: none; }
+    .plugin-search input { width: 168px; height: 32px; padding: 0 10px 0 29px; border: 1px solid var(--stroke); border-radius: 8px; background: var(--surface-1); color: var(--ink); font-size: 12px; outline: none; }
+    .plugin-search input::placeholder { color: var(--ink-faint); }
+    .plugin-search input:focus { border-color: var(--accent-line); background: #141417; }
+    .plugin-add { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 13px; font-weight: 600; }
+    .plugin-page .primary, .plugin-drawer .primary, .update-card .primary { border-color: transparent; background: var(--accent); color: #fff; }
+    .plugin-page .primary:hover, .plugin-drawer .primary:hover, .update-card .primary:hover { filter: brightness(1.08); }
+    .plugin-page .primary:disabled, .plugin-drawer .primary:disabled { opacity: .45; filter: none; cursor: not-allowed; }
+
+    .island-stage { display: flex; flex-direction: column; align-items: center; gap: 7px; margin: 22px 0 2px; }
+    .island-live { display: flex; align-items: center; gap: 2px; min-height: 44px; max-width: 100%; padding: 6px 8px; border-radius: 999px; background: #000; border: 1px solid rgba(255,255,255,.1); box-shadow: 0 14px 38px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06); overflow-x: auto; scrollbar-width: none; }
+    .island-live::-webkit-scrollbar { display: none; }
+    .island-live.is-empty { min-height: 44px; padding: 0 16px; border-style: dashed; background: #0a0a0c; box-shadow: none; }
+    .island-empty { color: var(--ink-faint); font-size: 12px; white-space: nowrap; }
+    .chip { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 9px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font-size: 12px; white-space: nowrap; cursor: grab; user-select: none; -webkit-user-drag: none; touch-action: none; }
+    .chip:hover { background: rgba(255,255,255,.06); }
+    .chip.dragging { opacity: .35; pointer-events: none; }
+    .chip-ghost { position: fixed; z-index: 60; pointer-events: none; transform: translate(-50%, -50%); border-color: var(--accent-line); background: #1b1b20; box-shadow: 0 12px 32px rgba(0,0,0,.6); }
+    body.chip-dragging, body.chip-dragging * { cursor: grabbing !important; user-select: none; }
+    .chip.drop-before::before, .chip.drop-after::after { content: ""; position: absolute; top: 5px; bottom: 5px; width: 2px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 6px rgba(59,130,246,.65); }
+    .chip.drop-before::before { left: -2px; }
+    .chip.drop-after::after { right: -2px; }
+    .chip-ico { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 5px; background: var(--surface-2); color: var(--ink-muted); font-size: 10px; font-weight: 600; }
+    .chip-sep { width: 1px; height: 16px; flex: 0 0 auto; background: var(--stroke); }
+    .island-hint { color: var(--ink-faint); font-size: 11px; opacity: 0; transition: opacity .15s ease; }
+    .island-stage:hover .island-hint, .island-stage:focus-within .island-hint { opacity: 1; }
+
+    .plugin-tabs { display: flex; gap: 2px; margin-top: 14px; border-bottom: 1px solid var(--stroke); }
+    .plugin-tabs button { position: relative; display: inline-flex; align-items: center; gap: 5px; padding: 11px 12px 12px; border: 0; background: transparent; color: var(--ink-faint); font-size: 12px; }
+    .plugin-tabs button:hover { color: var(--ink-muted); }
+    .plugin-tabs button.active { color: var(--ink); }
+    .plugin-tabs button.active::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
+    .plugin-tabs .tab-warn { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 7px rgba(239,68,68,.6); }
+
+    .plugin-rows { margin-top: 12px; border: 1px solid var(--stroke); border-radius: 12px; background: #141417; }
+    .plugin-row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 11px 12px 11px 14px; border-top: 1px solid var(--stroke-soft); cursor: pointer; transition: background .14s ease; }
+    .plugin-row:first-child { border-top: 0; border-radius: 12px 12px 0 0; }
+    .plugin-row:last-child { border-radius: 0 0 12px 12px; }
+    .plugin-row:hover { background: #1a1a1e; }
+    .plugin-row.is-error { background: linear-gradient(90deg, rgba(239,68,68,.09), transparent 55%); box-shadow: inset 2px 0 0 var(--danger); }
+    .plugin-row.is-off .plugin-icon { opacity: .55; }
+    .plugin-row.is-off .plugin-title h3 { color: var(--ink-muted); }
+    .plugin-icon { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 9px; background: var(--surface-2); border: 1px solid rgba(255,255,255,.05); color: var(--ink-muted); font-size: 13px; font-weight: 600; }
+    .plugin-row.is-error .plugin-icon { color: var(--danger-ink); background: rgba(239,68,68,.1); border-color: rgba(239,68,68,.25); }
+    .plugin-main { flex: 1; min-width: 0; }
+    .plugin-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .plugin-title h3 { margin: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .plugin-title .ver { color: var(--ink-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .plugin-desc { margin: 5px 0 0; color: var(--ink-faint); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .plugin-desc .err { color: var(--danger-ink); }
+    .plugin-controls { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+    .plugin-state { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink-muted); white-space: nowrap; }
+    .plugin-state i { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-faint); }
+    .plugin-state.is-running i { background: var(--success); box-shadow: 0 0 7px rgba(34,197,94,.55); }
+    .plugin-state.is-alert i { background: var(--temp-glow); box-shadow: 0 0 7px rgba(96,165,250,.5); }
+    .plugin-state.is-off i { background: var(--ink-faint); }
+    .plugin-state.is-error { color: var(--danger-ink); }
+    .plugin-state.is-error i { background: var(--danger); box-shadow: 0 0 7px rgba(239,68,68,.6); }
+    .mode-wrap, .more-wrap { position: relative; }
+    .mode-btn, .icon-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; border: 1px solid var(--stroke); border-radius: var(--r-ctl); background: var(--surface-1); color: var(--ink-muted); font-size: 11px; white-space: nowrap; }
+    .mode-btn { padding: 0 8px 0 9px; }
+    .mode-btn:hover, .icon-btn:hover { background: var(--surface-2); color: var(--ink); }
+    .mode-btn .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+    .mode-btn[data-mode="alert"] .dot { background: var(--temp-glow); }
+    .mode-btn[data-mode="off"] .dot { background: var(--ink-faint); }
+    .mode-btn .chev { color: var(--ink-faint); font-size: 9px; }
+    .icon-btn { width: 28px; justify-content: center; padding: 0; border-color: transparent; background: transparent; font-size: 16px; line-height: 1; }
+    .icon-btn:hover { border-color: var(--stroke); }
+    .retry-btn { height: 28px; padding: 0 10px; border: 1px solid var(--danger-line); border-radius: 8px; background: rgba(239,68,68,.08); color: var(--danger-ink); font-size: 11px; }
+    .retry-btn:hover { background: rgba(239,68,68,.16); }
+
+    .mode-popover, .more-popover { position: absolute; right: 0; top: calc(100% + 6px); z-index: 18; padding: 5px; border: 1px solid #33333a; border-radius: 12px; background: #1a1a1f; box-shadow: 0 18px 44px rgba(0,0,0,.6); animation: pop .12s ease; }
+    .mode-popover { width: 228px; }
+    .more-popover { width: 210px; }
+    @keyframes pop { from { opacity: 0; transform: translateY(-3px) scale(.985); } to { opacity: 1; transform: none; } }
+    .pop-opt { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 9px; border: 0; border-radius: 8px; background: transparent; text-align: left; }
+    .pop-opt:hover { background: var(--surface-2); }
+    .pop-opt .pop-dot { width: 7px; height: 7px; margin-top: 4px; border-radius: 50%; background: var(--ink-faint); }
+    .pop-opt[data-mode="resident"] .pop-dot { background: var(--success); }
+    .pop-opt[data-mode="alert"] .pop-dot { background: var(--temp-glow); }
+    .pop-opt b { display: block; font-size: 12px; font-weight: 600; color: var(--ink); }
+    .pop-opt small { display: block; margin-top: 3px; color: var(--ink-faint); font-size: 10.5px; line-height: 1.5; }
+    .pop-opt.is-active b::after { content: "✓"; margin-left: 6px; color: var(--accent); }
+    .pop-opt:disabled { opacity: .4; cursor: not-allowed; }
+    .pop-sep { height: 1px; margin: 5px 4px; background: var(--stroke); }
+    .pop-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 9px; border: 0; border-radius: 7px; background: transparent; color: var(--ink-muted); font-size: 12px; text-align: left; }
+    .pop-item:hover { background: var(--surface-2); color: var(--ink); }
+    .pop-item.danger { color: var(--danger-ink); }
+    .pop-item.danger:hover { background: rgba(239,68,68,.1); }
+    .pop-item.confirming { background: var(--danger); color: #fff; }
+
+    .plugin-loading { margin-top: 12px; border: 1px solid var(--stroke); border-radius: 12px; background: #141417; overflow: hidden; }
+    .skeleton { display: flex; align-items: center; gap: 12px; padding: 14px; border-top: 1px solid var(--stroke-soft); }
+    .skeleton:first-child { border-top: 0; }
+    .sk-icon, .sk-line, .sk-btn { border-radius: 8px; background: linear-gradient(90deg, #1b1b20 25%, #24242a 37%, #1b1b20 63%); background-size: 400% 100%; animation: shimmer 1.4s ease infinite; }
+    .sk-icon { width: 34px; height: 34px; }
+    .sk-line { height: 10px; }
+    .sk-line.w1 { width: 120px; }
+    .sk-line.w2 { width: 220px; height: 8px; margin-top: 8px; }
+    .sk-btn { width: 64px; height: 28px; margin-left: auto; }
+    @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+    .plugin-empty { padding: 40px 20px 30px; text-align: center; }
+    .empty-island { width: 236px; height: 44px; margin: 0 auto; display: flex; align-items: center; justify-content: center; gap: 7px; border-radius: 999px; border: 1px dashed #3a3a42; background: #0a0a0c; color: var(--ink-faint); box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+    .empty-island span { width: 26px; height: 26px; display: block; border-radius: 7px; border: 1px dashed #45454e; }
+    .plugin-empty h2 { margin: 22px 0 0; font-size: 20px; letter-spacing: -.02em; }
+    .plugin-empty p { margin: 8px 0 0; color: var(--ink-muted); font-size: 12px; }
+    .plugin-empty .empty-actions { display: flex; justify-content: center; gap: 8px; margin-top: 22px; }
+    .plugin-empty .empty-hint { margin-top: 14px; color: var(--ink-faint); font-size: 11px; }
+    .plugin-empty.compact { padding: 34px 20px; border: 1px dashed var(--stroke); border-radius: 12px; margin-top: 12px; }
+    .plugin-empty.compact b { font-size: 13px; }
+    .plugin-empty.compact p { margin-top: 5px; color: var(--ink-faint); }
+    .plugin-empty.compact button { margin-top: 14px; }
+
+    .plugin-dev { margin-top: 22px; border-top: 1px solid var(--stroke-soft); padding-top: 12px; }
+    .plugin-dev summary { cursor: pointer; list-style: none; color: var(--ink-faint); font-size: 11px; }
+    .plugin-dev summary::-webkit-details-marker { display: none; }
+    .plugin-dev summary:hover { color: var(--ink-muted); }
+    .plugin-dev > div { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0 0; }
+    .plugin-dev button { height: 28px; padding: 0 10px; border: 1px solid var(--stroke); border-radius: 7px; background: var(--surface-1); color: var(--ink-muted); font-size: 11px; }
+    .plugin-dev button:hover { color: var(--ink); background: var(--surface-2); }
+
+    .add-options { display: grid; gap: 8px; }
+    .add-option { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border: 1px solid var(--stroke); border-radius: 10px; background: var(--surface-1); text-align: left; }
+    .add-option:hover { border-color: var(--accent-line); background: var(--surface-2); }
+    .add-ico { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 9px; background: var(--accent-soft); color: var(--accent); }
+    .add-copy { flex: 1; min-width: 0; }
+    .add-copy b { display: block; font-size: 12.5px; font-weight: 600; }
+    .add-copy small { display: block; margin-top: 3px; color: var(--ink-faint); font-size: 10.5px; line-height: 1.5; }
+    .add-arrow { color: var(--ink-faint); font-size: 14px; }
+    .drawer-logbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .drawer-logbar button { height: 28px; padding: 0 9px; border: 1px solid var(--stroke); border-radius: 7px; background: var(--surface-1); color: var(--ink-muted); font-size: 11px; }
+    .drawer-logbar button:hover { color: var(--ink); background: var(--surface-2); }
+    .drawer-logbar span { margin-left: auto; color: var(--ink-faint); font-size: 10.5px; }
+    .drawer-log { min-height: 260px; max-height: 380px; margin: 0; padding: 12px; overflow: auto; border: 1px solid var(--stroke); border-radius: 10px; background: #0a0a0c; color: var(--ink-muted); font: 11px/1.7 var(--mono); white-space: pre-wrap; word-break: break-all; }
+
+    /* ---------------------------------------------------------- 详情抽屉 */
+    .drawer-scrim { position: fixed; inset: 42px 0 0 0; z-index: 24; background: var(--scrim); backdrop-filter: blur(3px); animation: fade .16s ease; }
+    @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slide { from { transform: translateX(24px); opacity: .6; } to { transform: none; opacity: 1; } }
+    .plugin-drawer { position: fixed; top: 42px; right: 0; bottom: 0; z-index: 25; width: 566px; max-width: calc(100vw - 60px); display: flex; flex-direction: column; background: var(--panel-bg); border-left: 1px solid var(--stroke); box-shadow: -30px 0 80px rgba(0,0,0,.5); animation: slide .2s cubic-bezier(.22,1,.36,1); }
+    .drawer-head { display: flex; align-items: flex-start; gap: 12px; padding: 20px 20px 16px; border-bottom: 1px solid var(--stroke); }
+    .drawer-head .plugin-icon { width: 40px; height: 40px; flex-basis: 40px; font-size: 15px; }
+    .drawer-head h2 { margin: 0; font-size: 17px; letter-spacing: -.02em; }
+    .drawer-head .meta { display: flex; align-items: center; gap: 8px; margin-top: 5px; color: var(--ink-faint); font-size: 11px; }
+    .drawer-head .close { margin-left: auto; width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-muted); font-size: 19px; }
+    .drawer-head .close:hover { background: var(--surface-2); color: var(--ink); }
+    .drawer-state { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 1px solid var(--stroke); background: #101013; }
+    .drawer-state .label { color: var(--ink-muted); font-size: 12px; }
+    .drawer-state .hint { margin-left: auto; color: var(--ink-faint); font-size: 11px; }
+    .drawer-tabs { display: flex; gap: 2px; padding: 0 20px; border-bottom: 1px solid var(--stroke); }
+    .drawer-tabs button { position: relative; padding: 11px 10px; border: 0; background: transparent; color: var(--ink-faint); font-size: 12px; }
+    .drawer-tabs button:hover { color: var(--ink-muted); }
+    .drawer-tabs button.active { color: var(--ink); }
+    .drawer-tabs button.active::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
+    .drawer-body { flex: 1; min-height: 0; overflow: auto; padding: 18px 20px 24px; }
+    .drawer-foot { display: flex; align-items: center; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--stroke); background: #101013; }
+    .drawer-foot .spacer { flex: 1; }
+    .drawer-loading { padding: 24px 0; color: var(--ink-faint); font-size: 12px; }
+
+    .state-previews { display: grid; grid-template-columns: 1.05fr .95fr .9fr; gap: 10px; }
+    .state-card { padding: 10px; border: 1px solid var(--stroke); border-radius: var(--r-card); background: #121215; }
+    .state-card .cap { margin-bottom: 8px; color: var(--ink-faint); font-size: 10px; letter-spacing: .04em; }
+    .pv-small { display: flex; justify-content: center; padding: 8px 0; }
+    .pv-pill { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 999px; background: #000; border: 1px solid rgba(255,255,255,.12); font-size: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+    .pv-medium { padding: 10px 11px; border-radius: 14px; background: #000; border: 1px solid rgba(255,255,255,.09); }
+    .pv-medium .t { color: var(--ink); font-size: 11px; font-weight: 600; }
+    .pv-medium .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+    .pv-medium .tiles span { padding: 7px; border-radius: 7px; background: #17171b; color: var(--ink-muted); font-size: 9px; }
+    .pv-medium .tiles b { display: block; margin-top: 3px; color: var(--ink); font-size: 13px; }
+    .pv-large { padding: 11px; border-radius: 16px; background: #000; border: 1px solid rgba(255,255,255,.09); }
+    .pv-large .row { display: flex; align-items: center; gap: 7px; padding: 5px 0; border-top: 1px solid #1e1e23; color: var(--ink-muted); font-size: 10px; }
+    .pv-large .row:first-child { border-top: 0; }
+    .pv-large .bar { flex: 1; height: 4px; border-radius: 2px; background: #26262c; overflow: hidden; }
+    .pv-large .bar i { display: block; width: 62%; height: 100%; background: var(--accent); }
+    .kv { display: grid; grid-template-columns: 84px 1fr; gap: 8px 12px; margin-top: 18px; font-size: 11px; }
+    .kv b { color: var(--ink-faint); font-weight: 400; }
+    .kv span { color: var(--ink-muted); word-break: break-all; }
+    .caps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .cap-chip { padding: 4px 8px; border: 1px solid var(--stroke); border-radius: 999px; color: var(--ink-muted); font-size: 10px; }
+    .cap-chip.risky { border-color: var(--warning-line); background: var(--warning-soft); color: var(--warning-ink); }
+    .section-title { margin: 22px 0 0; color: var(--ink-faint); font-size: 10px; letter-spacing: .05em; text-transform: uppercase; }
+
+    /* 工具页 */
+    .tool-intro { margin: -2px 0 14px; color: var(--ink-faint); font-size: 11px; line-height: 1.7; }
+    .tool-card { margin-bottom: 12px; border: 1px solid var(--stroke); border-radius: 12px; background: #141417; overflow: hidden; }
+    .tool-head { display: flex; align-items: flex-start; gap: 10px; padding: 13px 14px 0; }
+    .tool-head .ti { width: 30px; height: 30px; flex: 0 0 30px; display: grid; place-items: center; border-radius: 8px; background: var(--surface-2); color: var(--ink-muted); }
+    .tool-head .tt { flex: 1; min-width: 0; }
+    .tool-head b { display: block; font-size: 12.5px; }
+    .tool-head small { display: block; margin-top: 3px; color: var(--ink-faint); font-size: 11px; }
+    .tool-head .upd { flex: 0 0 auto; padding-top: 2px; color: var(--ink-faint); font-size: 10px; white-space: nowrap; }
+    .tool-body { padding: 12px 14px 2px; }
+    .tool-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .tstat { padding: 9px 10px; border: 1px solid var(--stroke-soft); border-radius: 8px; background: #101013; }
+    .tstat small { display: block; color: var(--ink-faint); font-size: 10px; }
+    .tstat b { display: block; margin-top: 4px; font-size: 14px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+    .tstat b.warn { color: var(--warning-ink); }
+    .spark { height: 44px; margin-top: 9px; border: 1px solid var(--stroke-soft); border-radius: 8px; background: #101013; overflow: hidden; }
+    .spark svg { display: block; width: 100%; height: 100%; }
+    .tool-list { border: 1px solid var(--stroke-soft); border-radius: 8px; overflow: hidden; background: #101013; }
+    .trow { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-top: 1px solid var(--stroke-soft); font-size: 11px; }
+    .trow:first-child { border-top: 0; }
+    .trow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+    .trow .meta { flex: 0 0 auto; color: var(--ink-faint); font-size: 10px; }
+    .trow.bad .meta { color: var(--danger-ink); }
+    .tool-note { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 8px 10px; border: 1px solid var(--warning-line); border-radius: 8px; background: var(--warning-soft); color: var(--warning-ink); font-size: 11px; line-height: 1.5; }
+    .tool-off { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding: 8px 10px; border: 1px solid var(--stroke); border-radius: 8px; background: #0e0e11; color: var(--ink-muted); font-size: 11px; }
+    .tool-off .spacer { flex: 1; }
+    .tool-off button { height: 26px; padding: 0 10px; border: 1px solid var(--accent-line); border-radius: 7px; background: var(--accent-soft); color: #BFDBFE; font-size: 11px; }
+    .tool-focus { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--stroke-soft); border-radius: 8px; background: #101013; }
+    .tool-focus .big { font-size: 24px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+    .tool-focus small { display: block; margin-top: 3px; color: var(--ink-faint); font-size: 10.5px; }
+    .rounds { display: flex; gap: 5px; }
+    .rounds i { width: 7px; height: 7px; border-radius: 50%; background: var(--surface-2); }
+    .rounds i.on { background: var(--accent); }
+    .tool-media { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--stroke-soft); border-radius: 8px; background: #101013; }
+    .tool-media .mcover { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 8px; background: var(--surface-2); color: var(--ink-muted); }
+    .tool-media .mtrack { flex: 1; min-width: 0; }
+    .tool-media b { display: block; font-size: 12px; font-weight: 600; }
+    .tool-media small { display: block; margin-top: 2px; color: var(--ink-faint); font-size: 10.5px; }
+    .mbar { display: block; height: 3px; margin-top: 7px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+    .mbar i { display: block; height: 100%; background: var(--accent); }
+    .tool-text { margin: 0; color: var(--ink-muted); font-size: 11.5px; line-height: 1.7; white-space: pre-wrap; }
+    .tool-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 12px 14px; }
+    .tool-foot .spacer { flex: 1; }
+    .tool-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border: 1px solid var(--stroke); border-radius: 8px; background: var(--surface-2); color: var(--ink-muted); font-size: 11.5px; }
+    .tool-btn:hover:not(:disabled) { color: var(--ink); border-color: #3b3b43; }
+    .tool-btn:disabled { opacity: .4; cursor: not-allowed; }
+    .tool-btn.primary { border-color: var(--accent-line); background: var(--accent-soft); color: #BFDBFE; }
+    .tool-btn.danger { border-color: var(--danger-line); background: var(--danger-soft); color: var(--danger-ink); }
+    .tool-btn.danger:hover:not(:disabled) { border-color: rgba(239,68,68,.45); background: rgba(239,68,68,.11); }
+    .tool-btn.armed { border-color: rgba(239,68,68,.6); background: rgba(239,68,68,.15); }
+    .tool-btn .st { color: var(--ink-faint); font-size: 10.5px; }
+    .tool-btn .ico { display: inline-flex; }
+    .tool-btn.is-running .st { color: var(--ink-muted); }
+    .tool-btn.is-running .ico.spin svg { animation: spin 1s linear infinite; }
+    .tool-btn.done .st { color: var(--success-ink); }
+    .tool-link { padding: 0 2px; border: 0; background: transparent; color: var(--accent); font-size: 11px; }
+    .tool-link:hover { text-decoration: underline; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* 关于 · 检查更新 */
+    .update-card { margin-top: 4px; border: 1px solid var(--stroke); border-radius: 14px; background: radial-gradient(520px 180px at 0% 0%, var(--accent-soft), transparent 65%), var(--surface-1); overflow: hidden; }
+    .update-main { display: flex; align-items: center; gap: 14px; padding: 16px 18px; }
+    .update-mark { width: 44px; height: 44px; flex: 0 0 44px; display: grid; place-items: center; border-radius: 12px; background: var(--accent-soft); border: 1px solid var(--accent-line); color: var(--accent); }
+    .update-id { flex: 1; min-width: 0; }
+    .update-title { display: flex; align-items: center; gap: 8px; }
+    .update-title h2 { margin: 0; font-size: 15px; letter-spacing: -.02em; }
+    .update-title .ver { padding: 1px 7px; border: 1px solid var(--stroke); border-radius: 999px; color: var(--ink-muted); font-family: var(--mono); font-size: 10px; font-weight: 400; }
+    .update-id p { margin: 5px 0 0; color: var(--ink-faint); font-size: 10.5px; }
+    .update-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+    .update-status { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink-muted); white-space: nowrap; }
+    .update-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-faint); }
+    .update-status.is-ok { color: var(--success-ink); }
+    .update-status.is-ok i { background: var(--success); box-shadow: 0 0 7px rgba(34,197,94,.55); }
+    .update-status.is-new { color: var(--warning-ink); }
+    .update-status.is-new i { background: var(--warning); box-shadow: 0 0 7px rgba(245,158,11,.55); }
+    .update-status.is-error { color: var(--danger-ink); }
+    .update-status.is-error i { background: var(--danger); box-shadow: 0 0 7px rgba(239,68,68,.6); }
+    .update-foot { display: flex; align-items: center; gap: 18px; padding: 12px 18px; border-top: 1px solid var(--stroke); background: #101013; }
+    .update-progress { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; color: var(--ink-faint); font-size: 10.5px; }
+    .update-progress .track { flex: 0 1 180px; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+    .update-progress .track i { display: block; width: 100%; height: 100%; background: var(--success); opacity: .7; }
+    .update-toggle { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+    .update-toggle b { font-size: 11.5px; font-weight: 500; }
+    .update-toggle small { display: block; margin-top: 2px; color: var(--ink-faint); font-size: 10px; }
+    .update-hint { margin: 10px 2px 0; color: var(--ink-faint); font-size: 10px; }
+
+    .switch { position: relative; width: 36px; height: 20px; flex: 0 0 36px; border: 0; border-radius: 999px; background: var(--surface-2); transition: background .15s; }
+    .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .15s; }
+    .switch.on { background: var(--accent); }
+    .switch.on::after { transform: translateX(16px); }
+
+    .toast-wrap { position: fixed; left: 50%; bottom: 18px; z-index: 40; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+    .toast { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid #33333a; border-radius: 10px; background: #1c1c21; box-shadow: 0 14px 40px rgba(0,0,0,.55); color: var(--ink); font-size: 12px; pointer-events: auto; animation: rise .16s ease; }
+    .toast.error { border-color: var(--danger-line); color: var(--danger-ink); }
+    @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+    @media (max-width: 980px) {
+      main { padding: 26px 24px; }
+      .plugin-head { flex-wrap: wrap; }
+      .plugin-head-actions { padding-top: 0; }
+    }
+
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <header class="window-bar"><strong>Activity Island 控制台管理</strong><button class="close" id="close">×</button></header>
+  <div class="layout">
+    <aside>
+      <div class="brand"><span class="mark">◈</span><div><b>Activity Island</b><small>控制台管理</small></div></div>
+      <nav><button class="active" data-tab="island">灵动岛</button><button data-tab="notifications">通知</button><button data-tab="plugins">插件</button><button data-tab="workbench">工作台</button><button data-tab="guide">说明</button><button data-tab="about">关于</button></nav>
+    </aside>
+    <main>
+      <section id="island">
+        <h1>灵动岛</h1><p class="subtitle">调整待机表现与常驻插件的显示比例。</p>
+        <div class="card"><div class="card-head"><h2>无事件时</h2><span class="hint">待机状态</span></div><div class="choices"><button class="choice" data-idle="float"><b>悬浮</b><small>保持待机胶囊，鼠标移入时展开。</small></button><button class="choice" data-idle="collapsed"><b>收起</b><small>收成顶部 64 × 8 横条，悬停时恢复。</small></button></div></div>
+        <div class="card"><div class="card-head"><h2>顶部距离</h2><span class="hint">收起横条始终贴顶</span></div><div class="line"><input id="top" type="number" min="0" max="200" step="1"><span class="hint">px</span><button class="primary" id="save-top">应用</button></div></div>
+        <div class="card"><div class="card-head"><h2>mini 大小</h2><span class="hint">只影响小岛与待机胶囊</span></div><div class="line"><span class="hint">小</span><input id="scale" type="range" min="0.5" max="1.5" step="0.05"><span class="hint">大</span><span class="value" id="scale-value"></span><button class="primary" id="save-scale">应用</button></div></div>
+        <div class="card"><div class="card-head"><h2>开机启动</h2><span class="hint">登录 Windows 后自动运行</span></div><label class="toggle-row"><input type="checkbox" id="launch-at-login"><span>开机自动启动灵动岛<small>写入 Windows 登录项，不改系统服务；安装版注册当前程序，便携版注册便携 exe。</small></span></label><span class="hint" id="launch-at-login-status"></span></div>
+      </section>
+      <section id="notifications" hidden>
+        <h1>通知</h1><p class="subtitle">接管 Windows 通知中心，并向本机脚本开放一个触发接口。历史在托盘菜单里查看。</p>
+        <div id="notif-status"></div>
+        <div id="notif-settings"></div>
+        <div class="card">
+          <div class="card-head"><h2>通知历史</h2><span class="hint" id="notif-count">—</span></div>
+          <div class="line">
+            <button class="primary" id="notif-open-history" type="button">打开通知历史</button>
+            <button class="ghost" id="notif-clear" type="button">清空通知…</button>
+          </div>
+          <span class="hint" id="notif-hint"></span>
+        </div>
+      </section>
+      <section id="plugins" hidden>
+        <div class="plugin-page">
+          <header class="plugin-head">
+            <div>
+              <h1>插件</h1>
+              <p class="plugin-sub">装在岛上的小工具。这里只管安装、开关和排序。</p>
+            </div>
+            <div class="plugin-head-actions">
+              <label class="plugin-search">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+                <input id="plugin-search" type="search" placeholder="搜索插件" autocomplete="off" />
+              </label>
+              <button class="primary plugin-add" id="plugin-add" type="button">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                添加插件
+              </button>
+            </div>
+          </header>
+
+          <div class="island-stage">
+            <div class="island-live" id="plugin-island" role="list" aria-label="岛上的常驻插件"></div>
+            <span class="island-hint">拖拽芯片调整上岛顺序</span>
+          </div>
+
+          <div class="plugin-tabs" role="tablist" aria-label="插件状态">
+            <button data-plugin-tab="running" class="active" type="button" role="tab">运行中 <i class="tab-warn" id="plugin-warn" hidden title="有插件需要处理"></i><span id="plugin-count-running">0</span></button>
+            <button data-plugin-tab="off" type="button" role="tab">已关闭 <span id="plugin-count-off">0</span></button>
+          </div>
+
+          <div class="plugin-loading" id="plugin-loading">
+            <div class="skeleton"><span class="sk-icon"></span><div><div class="sk-line w1"></div><div class="sk-line w2"></div></div><span class="sk-btn"></span></div>
+            <div class="skeleton"><span class="sk-icon"></span><div><div class="sk-line w1"></div><div class="sk-line w2"></div></div><span class="sk-btn"></span></div>
+            <div class="skeleton"><span class="sk-icon"></span><div><div class="sk-line w1"></div><div class="sk-line w2"></div></div><span class="sk-btn"></span></div>
+          </div>
+          <div class="plugin-rows" id="plugin-list" role="tabpanel" hidden></div>
+          <div class="plugin-empty" id="plugin-empty" hidden>
+            <div class="empty-island"><span></span><span></span><span></span></div>
+            <h2>岛上还什么都没有</h2>
+            <p>装一个小工具，它就会在屏幕顶部替你盯着。</p>
+            <div class="empty-actions">
+              <button class="primary" id="empty-add" type="button">添加第一个插件</button>
+              <button class="ghost wide" id="empty-import" type="button">从文件导入</button>
+            </div>
+            <p class="empty-hint">插件是普通网页，也可以让本地 AI 帮你写一个。</p>
+          </div>
+          <div class="plugin-empty compact" id="plugin-search-empty" hidden>
+            <b>没有匹配的插件</b>
+            <p>换个关键词，或者清空搜索。</p>
+            <button class="ghost wide" id="search-clear" type="button">清空搜索</button>
+          </div>
+
+          <details class="plugin-dev">
+            <summary>开发者选项：插件目录 · 热重载 · Skill 包 · 日志</summary>
+            <div>
+              <button id="dev-plugin-dir" type="button">打开插件目录</button>
+              <button id="dev-plugin-skill" type="button">下载插件生成 Skill 包</button>
+              <button id="dev-plugin-logs" type="button">打开宿主日志目录</button>
+            </div>
+          </details>
+        </div>
+      </section>
+      <section id="workbench" hidden>
+        <div class="page-head">
+          <div>
+            <h1>工作台</h1>
+            <p class="subtitle">右键小岛打开的就是工作台。可以装多个，<b>同时只有一个在用</b>。</p>
+          </div>
+          <div class="page-actions">
+            <button class="primary" id="workbench-install">选择目录安装</button>
+            <button class="ghost wide" id="workbench-import">从插件包导入</button>
+            <button class="ghost wide" id="workbench-skill" title="下载「工作台生成 Skill 包」：解压到本地 AI（Claude Code 等）的 skills 目录，AI 读 SKILL.md 就能按规范生成工作台">下载 Skill 包</button>
+          </div>
+        </div>
+        <div class="card trust" id="workbench-trust"></div>
+        <div class="card" id="workbench-notice" hidden></div>
+        <div class="card" id="workbench-issues" hidden></div>
+        <div class="wb-grid" id="workbench-list"></div>
+      </section>
+      <section id="guide" hidden>
+        <h1>说明</h1>
+        <p class="subtitle">这个软件是什么、怎么用，以及几个可以直接试的内置功能。</p>
+
+        <div class="card">
+          <div class="card-head"><h2>这是什么</h2><span class="hint">Activity Island</span></div>
+          <p class="guide-text">灵动岛是屏幕顶部的一条常驻信息条。它平时不占地方，有事情发生时才冒出来提醒你——
+            系统通知、设备状态、传输进度、任务结果。点一下展开看详情，再点一下收起，不需要打开大型应用。</p>
+          <div class="guide-shapes">
+            <div class="shape-row"><b>小岛</b><span>一条窄横条，只显示最关键的预览。提醒时短暂出现，平时不占位。</span></div>
+            <div class="shape-row"><b>中岛</b><span>点小岛展开。看完整内容，做一两个简短操作。</span></div>
+            <div class="shape-row"><b>大岛</b><span>需要更多空间时继续展开，留给复杂任务（如传输进度）。</span></div>
+            <div class="shape-row"><b>工作台</b><span>右键小岛打开的全屏面板，放搜索、历史这类密集任务。</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>基本操作</h2><span class="hint">鼠标就够</span></div>
+          <div class="guide-shapes">
+            <div class="shape-row"><b>悬停</b><span>鼠标移到待机胶囊上，它会展开成信息条。</span></div>
+            <div class="shape-row"><b>单击</b><span>展开当前内容；再点一次进入更大一档。</span></div>
+            <div class="shape-row"><b>右键</b><span>打开工作台。托盘图标右键也有菜单（含通知历史、退出）。</span></div>
+            <div class="shape-row"><b>拖拽</b><span>在「插件」页把芯片拖到想要的位置，决定岛上从左到右的顺序。</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>通知</h2><span class="hint">内置，无需插件</span></div>
+          <p class="guide-text">软件会接管 Windows 通知中心里出现的通知，把它们显示在岛上：小岛看过一眼，中岛看全文。
+            通知历史在托盘右键菜单里集中管理，不在岛上占位置。</p>
+          <div class="guide-shapes">
+            <div class="shape-row"><b>读取哪些</b><span>所有进入通知中心的应用通知。首次使用需要在系统设置里允许访问通知。</span></div>
+            <div class="shape-row"><b>怎么不打扰</b><span>「通知」页里可暂停提醒、按应用过滤、设免打扰时段。这些只影响提醒，历史始终记录。</span></div>
+            <div class="shape-row"><b>原生横幅</b><span>Windows 不允许程序拦截横幅。想让某个应用只在岛上提醒，就把它的系统通知样式改为「仅显示在通知中心」。</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>本地接口</h2><span class="hint">给脚本用</span></div>
+          <p class="guide-text">软件在本机开了一个 HTTP 端口，任何脚本、CI、其他程序都可以往里推一条通知，直接上岛。
+            默认只绑定 <code>127.0.0.1</code>，需要令牌才能调用。</p>
+          <pre class="guide-code">curl -X POST http://127.0.0.1:5720/api/v1/notifications \
+  -H "Authorization: Bearer &lt;令牌&gt;" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"构建完成","content":"用时 42 秒","level":"warn"}'</pre>
+          <p class="note">令牌、端口与实际端点见「通知」页。字段支持 <code>title</code> / <code>content</code> / <code>level</code> / <code>ttl</code> / <code>dedupeKey</code>。</p>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>测试工具</h2><span class="hint">发一条通知看看效果</span></div>
+          <div class="test-form">
+            <label class="param"><span>标题</span><input type="text" id="test-title" value="测试通知" /></label>
+            <label class="param"><span>正文</span><input type="text" id="test-body" value="这是一条测试通知，用来验证岛的展示效果。" /></label>
+            <label class="param"><span>级别</span>
+              <select id="test-level">
+                <option value="info">普通（info）</option>
+                <option value="warn">警告（warn）</option>
+                <option value="critical">严重（critical）</option>
+              </select>
+            </label>
+            <label class="param"><span>目标地址<small>填 IP 即可；也可填 IP:端口 或完整 URL。留空用当前配置的端点。</small></span>
+              <input type="text" id="test-target" placeholder="127.0.0.1 或 192.168.1.3:5720" autocomplete="off" spellcheck="false" />
+            </label>
+          </div>
+          <div class="test-actions">
+            <button class="primary" id="test-local" type="button">通过端口发送</button>
+            <button class="primary" id="test-windows" type="button">发一条 Windows 通知</button>
+            <button class="ghost wide" id="test-ingest" type="button">直接注入管道</button>
+          </div>
+          <p class="note" id="test-result"></p>
+          <div class="guide-shapes" style="margin-top:10px">
+            <div class="shape-row"><b>端口发送</b><span>走真实 HTTP + 令牌 + 管道。填局域网 IP 可验证「局域网可访问」是否真的生效。</span></div>
+            <div class="shape-row"><b>Windows 通知</b><span>发起真实系统通知，验证「通知中心 → 监听 → 上岛」。</span></div>
+            <div class="shape-row"><b>直接注入</b><span>跳过网络与系统通知，只验证展示与提醒样式，最不容易受环境影响。</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>常见问题</h2><span class="hint">—</span></div>
+          <div class="guide-shapes">
+            <div class="shape-row"><b>岛上没有通知</b><span>先确认「通知」页里 Windows 通知显示「监听中」；没授权就去系统设置允许访问通知。</span></div>
+            <div class="shape-row"><b>接口调不通</b><span>看「通知」页的端点和令牌；确认本地接口是「运行中」。端口被占用时可在同一页换端口。</span></div>
+            <div class="shape-row"><b>全屏时看不到岛</b><span>前台应用全屏时岛会自动隐藏，避免遮挡。退出全屏即恢复。</span></div>
+            <div class="shape-row"><b>通知只有应用名</b><span>Windows 通知中心本身可能只提供应用名和标题，读不到应用内部更细的文字。</span></div>
+          </div>
+        </div>
+      </section>
+      <section id="about" hidden>
+        <h1>关于</h1><p class="subtitle">版本与更新。其余内容保持原样。</p>
+        <section class="update-card" aria-label="检查更新">
+          <div class="update-main">
+            <div class="update-mark" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            </div>
+            <div class="update-id">
+              <div class="update-title">
+                <h2>Activity Island</h2>
+                <span class="ver" id="about-version">—</span>
+                <span class="update-status is-idle" id="about-update-status"><i></i><span>尚未检查</span></span>
+              </div>
+              <p id="about-update-note">点「检查更新」获取最新版本。</p>
+            </div>
+            <div class="update-actions">
+              <button class="ghost wide" id="about-changelog" type="button">更新日志</button>
+              <button class="primary" id="about-check-update" type="button">检查更新</button>
+            </div>
+          </div>
+          <div class="update-foot">
+            <div class="update-progress"><span class="track"><i></i></span><span id="about-update-auto-note">启动时自动检查</span></div>
+            <div class="update-toggle">
+              <div><b>启动时检查更新</b><small>有新版本时在「关于」页提示。</small></div>
+              <button class="switch on" id="about-auto-check" type="button" aria-label="启动时检查更新"></button>
+            </div>
+          </div>
+        </section>
+        <p class="update-hint">检查更新只读取版本信息，不会上传插件或工作台数据。</p>
+      </section>
+    </main>
+  </div>
+  <div class="modal-mask" id="plugin-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="plugin-modal-title">
+      <div class="modal-head"><h2 id="plugin-modal-title">插件</h2><button class="close" id="plugin-modal-close" type="button" aria-label="关闭">×</button></div>
+      <div id="plugin-modal-content"></div>
+    </div>
+  </div>
+  <div class="toast-wrap" id="toast-wrap" aria-live="polite"></div>
+  <script>
+    const modal = document.getElementById('plugin-modal')
+   const modalContent = document.getElementById('plugin-modal-content')
+   const modalTitle = document.getElementById('plugin-modal-title')
+   const api = window.islandSettings
+    const $ = id => document.getElementById(id)
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]))
+    let settings = { idleMode: 'float', islandTop: 8, miniScale: 1, launchAtLogin: false, pluginOrder: [], checkUpdatesOnLaunch: true }
+    // ---------------------------------------------------------------- 插件页
+    let pluginList = []
+    let pluginIssues = []
+    let pluginTab = 'running'
+    let pluginQuery = ''
+    let pluginLoading = true
+    let pluginLoaded = false
+    let drawerState = null
+    let drawerEl = null
+    let chipDrag = null
+    let suppressChipClickUntil = 0
+    let updateStatus = null
+    let updateBusy = false
+
+    const $$ = (selector, root = document) => [...root.querySelectorAll(selector)]
+    const MODE_META = {
+      resident: { label: '常驻', status: '运行中', cls: 'is-running', hint: '一直在岛上占一段位置' },
+      alert: { label: '仅提醒', status: '仅提醒', cls: 'is-alert', hint: '平时不上岛，只在提醒时出现' },
+      off: { label: '关闭', status: '已关闭', cls: 'is-off', hint: '停止运行，不占岛也不提醒' },
+    }
+
+    let noticeTimer = null
+    function toast(text, tone = 'ok') {
+      const wrap = $('toast-wrap')
+      if (!wrap) return
+      const el = document.createElement('div')
+      el.className = `toast${tone === 'error' ? ' error' : ''}`
+      el.textContent = String(text ?? '')
+      wrap.append(el)
+      setTimeout(() => el.remove(), tone === 'error' ? 4200 : 2600)
+    }
+    function notify(text) { toast(text, 'error') }
+    /** 危险操作两步确认：第一次点击变成"确认卸载"，3 秒内再点一次才真的执行。 */
+    function twoStep(button, confirmLabel, run) {
+      if (button.dataset.confirming === '1') {
+        button.dataset.confirming = ''
+        button.classList.remove('confirming')
+        button.textContent = button.dataset.label ?? button.textContent
+        void run()
+        return
+      }
+      button.dataset.label = button.textContent
+      button.dataset.confirming = '1'
+      button.classList.add('confirming')
+      button.textContent = confirmLabel
+      setTimeout(() => {
+        if (button.dataset.confirming !== '1') return
+        button.dataset.confirming = ''
+        button.classList.remove('confirming')
+        button.textContent = button.dataset.label
+      }, 3000)
+    }
+    function closeModal() { modal.hidden = true; modalContent.innerHTML = '' }
+    function openModal(title, html) {
+      modalTitle.textContent = title
+      modalContent.innerHTML = html
+      modal.hidden = false
+    }
+    $('plugin-modal-close').onclick = closeModal
+
+    function render() {
+      document.querySelectorAll('[data-idle]').forEach(el => el.classList.toggle('active', el.dataset.idle === settings.idleMode))
+      if ($('top')) $('top').value = settings.islandTop
+      if ($('scale')) $('scale').value = settings.miniScale
+      if ($('scale-value')) $('scale-value').textContent = `${Number(settings.miniScale).toFixed(2)}×`
+      if ($('launch-at-login')) $('launch-at-login').checked = settings.launchAtLogin === true
+      const version = $('about-version')
+      if (version) version.textContent = settings.appVersion ? `v${settings.appVersion}` : '—'
+      const auto = $('about-auto-check')
+      if (auto) auto.classList.toggle('on', settings.checkUpdatesOnLaunch !== false)
+      const autoNote = $('about-update-auto-note')
+      if (autoNote) autoNote.textContent = settings.checkUpdatesOnLaunch !== false ? '启动时自动检查' : '启动时自动检查已关闭'
+    }
+
+    // mini 条顺序 = 用户顺序 > priority > 名字，和后端 orderPlugins 保持一致。
+    function orderedPlugins(items) {
+      const order = Array.isArray(settings.pluginOrder) ? settings.pluginOrder : []
+      const rank = id => { const index = order.indexOf(id); return index < 0 ? Number.MAX_SAFE_INTEGER : index }
+      return [...items].sort((a, b) => {
+        const ra = rank(a.id), rb = rank(b.id)
+        if (ra !== rb) return ra - rb
+        const pa = Number.isFinite(Number(a.priority)) ? Number(a.priority) : 50
+        const pb = Number.isFinite(Number(b.priority)) ? Number(b.priority) : 50
+        if (pa !== pb) return pb - pa
+        return String(a.name).localeCompare(String(b.name), 'zh-CN')
+      })
+    }
+    const pluginById = id => pluginList.find(item => item.id === id)
+    const issueOf = id => pluginIssues.find(item => item.id === id)
+    function pluginIcon(p) {
+      const text = String(p.icon ?? p.name ?? '?').trim()
+      const char = Array.from(text)[0] ?? '?'
+      return `<span class="plugin-icon">${esc(char)}</span>`
+    }
+    function stateInfo(p) {
+      if (issueOf(p.id)) return { key: 'error', label: '已停止', status: '启动失败', cls: 'is-error', hint: '启动失败，需要重试' }
+      return MODE_META[p.mode] ?? MODE_META.alert
+    }
+    function pluginDescription(p) {
+      if (issueOf(p.id)) return `<span class="err">${esc(issueOf(p.id)?.reason ?? '启动失败')}</span>`
+      const bits = [p.description || p.id]
+      if (p.tools?.length) bits.push(`${p.tools.length} 个工具`)
+      if (p.guide) bits.push('有说明')
+      return bits.join(' · ')
+    }
+    function relativeTime(timestamp) {
+      const value = Number(timestamp)
+      if (!Number.isFinite(value) || value <= 0) return ''
+      const diff = Date.now() - value
+      if (diff < 5000) return '刚刚'
+      if (diff < 60000) return `${Math.floor(diff / 1000)} 秒前`
+      if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`
+      return new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    }
+    function matchesPlugin(p, query) {
+      if (!query) return true
+      return `${p.name ?? ''} ${p.id ?? ''} ${p.description ?? ''}`.toLowerCase().includes(query)
+    }
+
+    function rowHtml(p) {
+      const info = stateInfo(p)
+      const issue = issueOf(p.id)
+      const mode = MODE_META[p.mode] ?? MODE_META.alert
+      const modeButton = `<div class="mode-wrap"><button class="mode-btn" type="button" data-mode="${p.mode}" data-mode-id="${esc(p.id)}" aria-haspopup="true"><span class="dot"></span><span>${mode.label}</span><span class="chev">▾</span></button></div>`
+      return `<article class="plugin-row${issue ? ' is-error' : ''}${p.mode === 'off' ? ' is-off' : ''}" data-plugin-id="${esc(p.id)}" tabindex="0">
+        ${pluginIcon(p)}
+        <div class="plugin-main">
+          <div class="plugin-title"><h3>${esc(p.name)}</h3><span class="ver">v${esc(p.version)}</span>${issue ? `<span class="plugin-state is-error"><i></i>${info.status}</span>` : ''}</div>
+          <p class="plugin-desc">${pluginDescription(p)}</p>
+        </div>
+        <div class="plugin-controls">
+          ${issue ? `<button class="retry-btn" type="button" data-retry="${esc(p.id)}">重试</button>` : ''}
+          ${modeButton}
+          <div class="more-wrap"><button class="icon-btn" type="button" data-more="${esc(p.id)}" aria-label="更多操作" aria-haspopup="true">⋯</button></div>
+        </div>
+      </article>`
+    }
+    function orphanRow(issue) {
+      return `<article class="plugin-row is-error" data-issue-only="${esc(issue.id ?? '')}">
+        <span class="plugin-icon">!</span>
+        <div class="plugin-main">
+          <div class="plugin-title"><h3>${esc(issue.id ?? '未知 id')}</h3><span class="plugin-state is-error"><i></i>启动失败</span></div>
+          <p class="plugin-desc"><span class="err">${esc(issue.reason ?? '无法加载')}</span> · ${esc(issue.directory ?? '')}</p>
+        </div>
+        <div class="plugin-controls"><button class="retry-btn" type="button" data-retry="${esc(issue.id ?? '')}">重试</button></div>
+      </article>`
+    }
+
+    function renderPluginPage() {
+      const list = orderedPlugins(pluginList)
+      const running = list.filter(p => p.mode !== 'off')
+      const off = list.filter(p => p.mode === 'off')
+      const orphans = pluginIssues.filter(issue => !list.some(p => p.id === issue.id))
+      $('plugin-count-running').textContent = String(running.length + orphans.length)
+      $('plugin-count-off').textContent = String(off.length)
+      $('plugin-warn').hidden = pluginIssues.length === 0
+
+      const resident = list.filter(p => p.mode === 'resident')
+      const island = $('plugin-island')
+      island.classList.toggle('is-empty', resident.length === 0)
+      island.innerHTML = resident.length
+        ? resident.map((p, index) => `${index ? '<span class="chip-sep"></span>' : ''}<button class="chip" type="button" draggable="false" data-chip="${esc(p.id)}" role="listitem" title="拖动排序，点击看详情"><span class="chip-ico">${esc(Array.from(String(p.icon ?? p.name ?? '?'))[0] ?? '?')}</span><span>${esc(p.name)}</span></button>`).join('')
+        : '<span class="island-empty">没有常驻插件</span>'
+
+      $$('[data-plugin-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.pluginTab === pluginTab))
+      const query = pluginQuery.trim().toLowerCase()
+      const loading = $('plugin-loading')
+      const rows = $('plugin-list')
+      const empty = $('plugin-empty')
+      const searchEmpty = $('plugin-search-empty')
+
+      if (!pluginLoaded) {
+        loading.hidden = false
+        rows.hidden = true
+        empty.hidden = true
+        searchEmpty.hidden = true
+        return
+      }
+      loading.hidden = true
+
+      if (!pluginList.length && !pluginIssues.length) {
+        rows.hidden = true
+        empty.hidden = false
+        searchEmpty.hidden = true
+        return
+      }
+      empty.hidden = true
+
+      let items = (pluginTab === 'off' ? off : running).filter(p => matchesPlugin(p, query))
+      if (pluginTab === 'running') {
+        items = items.sort((a, b) => {
+          const ea = issueOf(a.id) ? 0 : 1
+          const eb = issueOf(b.id) ? 0 : 1
+          if (ea !== eb) return ea - eb
+          const ra = a.mode === 'resident' ? 0 : 1
+          const rb = b.mode === 'resident' ? 0 : 1
+          return ra - rb
+        })
+      }
+      const visibleOrphans = pluginTab === 'running'
+        ? orphans.filter(issue => matchesPlugin({ id: issue.id, name: issue.id, description: issue.reason }, query))
+        : []
+
+      if (!items.length && !visibleOrphans.length) {
+        rows.hidden = true
+        searchEmpty.hidden = false
+        const title = searchEmpty.querySelector('b')
+        const text = searchEmpty.querySelector('p')
+        const clear = $('search-clear')
+        if (query) {
+          title.textContent = '没有匹配的插件'
+          text.textContent = '换个关键词，或者清空搜索。'
+          clear.hidden = false
+        } else {
+          title.textContent = pluginTab === 'off' ? '没有已关闭的插件' : '没有运行中的插件'
+          text.textContent = pluginTab === 'off' ? '关闭的插件会出现在这里。' : '所有插件都关掉了。'
+          clear.hidden = true
+        }
+        return
+      }
+
+      searchEmpty.hidden = true
+      rows.hidden = false
+      rows.innerHTML = items.map(rowHtml).join('') + visibleOrphans.map(orphanRow).join('')
+    }
+
+    async function refreshPlugins(options = {}) {
+      if (options.initial) {
+        pluginLoading = true
+        pluginLoaded = false
+        renderPluginPage()
+      }
+      try {
+        const [items, issues] = await Promise.all([
+          api.plugins(),
+          api.issues().catch(() => []),
+        ])
+        pluginList = Array.isArray(items) ? items : []
+        pluginIssues = Array.isArray(issues) ? issues : []
+      } catch (error) {
+        toast('读取插件列表失败', 'error')
+      }
+      pluginLoading = false
+      pluginLoaded = true
+      renderPluginPage()
+      if (drawerState) renderDrawer()
+    }
+
+    function closePopovers() {
+      document.querySelectorAll('.mode-popover, .more-popover').forEach(el => el.remove())
+      document.querySelectorAll('[aria-expanded="true"]').forEach(el => el.setAttribute('aria-expanded', 'false'))
+    }
+
+    async function setPluginMode(p, mode) {
+      if (!p) return false
+      const result = await api.setPluginMode(p.id, mode).catch(error => ({ ok: false, error: String(error) }))
+      if (!result?.ok) { toast(result?.error ?? '切换上岛方式失败', 'error'); return false }
+      p.mode = result.mode ?? mode
+      p.enabled = p.mode !== 'off'
+      p.resident = p.mode === 'resident'
+      toast(mode === 'resident' ? `已设为常驻：${p.name}` : mode === 'alert' ? `已设为仅提醒：${p.name}` : `已关闭：${p.name}`)
+      await refreshPlugins()
+      return true
+    }
+
+    function openModePopover(button, p) {
+      closePopovers()
+      const wrap = button.closest('.mode-wrap')
+      if (!wrap) return
+      const supportsResident = p.supportsResident !== false
+      const popover = document.createElement('div')
+      popover.className = 'mode-popover'
+      popover.innerHTML = `
+        <button class="pop-opt${p.mode === 'resident' ? ' is-active' : ''}" type="button" data-set-mode="resident" ${supportsResident ? '' : 'disabled'}>
+          <i class="pop-dot"></i><span><b>常驻岛上</b><small>${supportsResident ? '占一段位置，拖拽排序' : '这个插件没有提供小岛视图'}</small></span>
+        </button>
+        <button class="pop-opt${p.mode === 'alert' ? ' is-active' : ''}" type="button" data-set-mode="alert">
+          <i class="pop-dot"></i><span><b>仅提醒</b><small>平时不上岛，需要时出现</small></span>
+        </button>
+        <button class="pop-opt${p.mode === 'off' ? ' is-active' : ''}" type="button" data-set-mode="off">
+          <i class="pop-dot"></i><span><b>关闭</b><small>停止运行，不占岛也不提醒</small></span>
+        </button>`
+      wrap.append(popover)
+      button.setAttribute('aria-expanded', 'true')
+      popover.querySelectorAll('[data-set-mode]').forEach(option => {
+        option.onclick = async () => {
+          if (option.disabled) return
+          const mode = option.dataset.setMode
+          if (mode === p.mode) { closePopovers(); return }
+          closePopovers()
+          await setPluginMode(p, mode)
+        }
+      })
+    }
+
+    async function openMorePopover(button, p) {
+      closePopovers()
+      const wrap = button.closest('.more-wrap')
+      if (!wrap) return
+      const canParams = p.settings && typeof p.settings === 'object' && (p.settings.fields?.length ?? 0) > 0
+      const canPanel = typeof p.settings === 'string'
+      const canTools = Array.isArray(p.tools) && p.tools.length > 0
+      const popover = document.createElement('div')
+      popover.className = 'more-popover'
+      popover.innerHTML = `
+        <button class="pop-item" type="button" data-more-action="details">查看详情</button>
+        ${canPanel ? '<button class="pop-item" type="button" data-more-action="panel">打开插件面板</button>' : ''}
+        ${canTools ? '<button class="pop-item" type="button" data-more-action="tools">工具…</button>' : ''}
+        ${canParams ? '<button class="pop-item" type="button" data-more-action="params">参数…</button>' : ''}
+        <button class="pop-item" type="button" data-more-action="logs">日志…</button>
+        <button class="pop-item" type="button" data-more-action="guide">使用说明</button>
+        <div class="pop-sep"></div>
+        <button class="pop-item" type="button" data-more-action="reload">重新加载</button>
+        <button class="pop-item" type="button" data-more-action="export">导出插件包</button>
+        <button class="pop-item" type="button" data-more-action="reveal">在文件夹中显示</button>
+        <div class="pop-sep"></div>
+        <button class="pop-item danger" type="button" data-more-action="uninstall">卸载</button>`
+      wrap.append(popover)
+      button.setAttribute('aria-expanded', 'true')
+      popover.querySelectorAll('[data-more-action]').forEach(item => {
+        item.onclick = async () => {
+          const action = item.dataset.moreAction
+          if (action === 'uninstall') {
+            if (item.dataset.confirming === '1') {
+              const result = await api.uninstall(p.id)
+              closePopovers()
+              if (result?.ok === false) { toast(result.error ?? '卸载失败', 'error'); return }
+              if (drawerState?.id === p.id) closeDrawer()
+              toast(`已卸载 ${p.name}`)
+              await refreshPlugins()
+              return
+            }
+            item.dataset.confirming = '1'
+            item.classList.add('confirming')
+            item.textContent = '确认卸载'
+            setTimeout(() => {
+              if (!item.isConnected) return
+              item.dataset.confirming = ''
+              item.classList.remove('confirming')
+              item.textContent = '卸载'
+            }, 3200)
+            return
+          }
+          closePopovers()
+          if (action === 'details') return openDrawer(p.id)
+          if (action === 'tools') return openDrawer(p.id, 'tools')
+          if (action === 'params') return openDrawer(p.id, 'params')
+          if (action === 'logs') return openDrawer(p.id, 'logs')
+          if (action === 'guide') return openDrawer(p.id, 'guide')
+          if (action === 'panel') {
+            const result = await api.openPluginPanel(p.id).catch(error => ({ ok: false, error: String(error) }))
+            if (result?.ok === false) toast(result.error ?? '打开面板失败', 'error')
+            return
+          }
+          if (action === 'reload') {
+            const result = await api.reload(p.id).catch(error => ({ ok: false, error: String(error) }))
+            toast(result?.ok ? `已重载 ${p.name}` : `重载失败：${result?.error ?? '未知原因'}`, result?.ok ? 'ok' : 'error')
+            await refreshPlugins()
+            return
+          }
+          if (action === 'export') {
+            const result = await api.exportPluginPackage(p.id).catch(error => ({ ok: false, error: String(error) }))
+            if (result?.canceled) return
+            if (!result?.ok) { toast(result?.error ?? '导出失败', 'error'); return }
+            toast(`已导出：${result.path}（${Math.round((result.bytes ?? 0) / 1024)} KB）`)
+            return
+          }
+          if (action === 'reveal') {
+            const result = await api.revealPlugin(p.id).catch(error => ({ ok: false, error: String(error) }))
+            if (result?.ok === false) toast(result.error ?? '打开目录失败', 'error')
+          }
+        }
+      })
+    }
+
+    // ---------------------------------------------------------- 详情抽屉
+    function drawerTabs(p) {
+      const tabs = [{ id: 'overview', label: '概览' }]
+      if (Array.isArray(p.tools) && p.tools.length) tabs.push({ id: 'tools', label: '工具' })
+      if (p.settings && typeof p.settings === 'object' && (p.settings.fields?.length ?? 0)) {
+        tabs.push({ id: 'params', label: `参数 (${p.settings.fields.length})` })
+      }
+      tabs.push({ id: 'logs', label: '日志' }, { id: 'guide', label: '说明' })
+      return tabs
+    }
+    function closeDrawer() {
+      if (!drawerEl) return
+      document.querySelectorAll('.drawer-scrim, .plugin-drawer').forEach(el => el.remove())
+      drawerEl = null
+      drawerState = null
+    }
+    function openDrawer(pluginId, tab = 'overview') {
+      const p = pluginById(pluginId)
+      if (!p) return
+      closePopovers()
+      closeDrawer()
+      const scrim = document.createElement('div')
+      scrim.className = 'drawer-scrim'
+      scrim.onclick = closeDrawer
+      const drawer = document.createElement('aside')
+      drawer.className = 'plugin-drawer'
+      drawer.setAttribute('role', 'dialog')
+      drawer.setAttribute('aria-modal', 'true')
+      document.body.append(scrim, drawer)
+      drawerEl = drawer
+      drawerState = { id: pluginId, tab, params: null }
+      renderDrawer()
+    }
+    function renderDrawer() {
+      const p = drawerState ? pluginById(drawerState.id) : null
+      if (!p || !drawerEl) { closeDrawer(); return }
+      const tabs = drawerTabs(p)
+      if (!tabs.some(tab => tab.id === drawerState.tab)) drawerState.tab = 'overview'
+      const info = stateInfo(p)
+      const mode = MODE_META[p.mode] ?? MODE_META.alert
+      drawerEl.innerHTML = `
+        <div class="drawer-head">
+          ${pluginIcon(p)}
+          <div><h2>${esc(p.name)}</h2><div class="meta">v${esc(p.version)} · <span class="plugin-state ${info.cls}"><i></i>${info.status}</span></div></div>
+          <button class="close" type="button" data-drawer-close aria-label="关闭">×</button>
+        </div>
+        <div class="drawer-state">
+          <span class="label">上岛方式</span>
+          <div class="mode-wrap">
+            <button class="mode-btn" type="button" data-mode="${p.mode}" data-drawer-mode aria-haspopup="true"><span class="dot"></span><span>${mode.label}</span><span class="chev">▾</span></button>
+          </div>
+          <span class="hint">${info.hint}</span>
+        </div>
+        <div class="drawer-tabs" role="tablist">
+          ${tabs.map(tab => `<button type="button" role="tab" data-drawer-tab="${tab.id}" class="${drawerState.tab === tab.id ? 'active' : ''}">${tab.label}</button>`).join('')}
+        </div>
+        <div class="drawer-body" id="drawer-body"></div>
+        <div class="drawer-foot">
+          <button class="danger" type="button" data-drawer-remove ${p.mode === 'off' ? 'disabled' : ''}>从岛上移除</button>
+          <span class="spacer"></span>
+          <button class="ghost wide" type="button" data-drawer-close>关闭</button>
+          <button class="primary" type="button" data-drawer-save ${drawerState.tab === 'params' ? '' : 'hidden'}>保存</button>
+        </div>`
+      drawerEl.querySelectorAll('[data-drawer-close]').forEach(btn => { btn.onclick = closeDrawer })
+      drawerEl.querySelector('[data-drawer-mode]').onclick = event => openModePopover(event.currentTarget, p)
+      drawerEl.querySelector('[data-drawer-remove]').onclick = async () => { await setPluginMode(p, 'off') }
+      drawerEl.querySelectorAll('[data-drawer-tab]').forEach(btn => {
+        btn.onclick = () => {
+          drawerState.tab = btn.dataset.drawerTab
+          renderDrawer()
+        }
+      })
+      const save = drawerEl.querySelector('[data-drawer-save]')
+      if (save) save.onclick = () => saveDrawerParams(p)
+      const body = $('drawer-body')
+      body.onclick = event => handleDrawerBodyClick(event, p)
+      void loadDrawerBody(p)
+    }
+    async function loadDrawerBody(p) {
+      const body = $('drawer-body')
+      if (!body || !drawerState) return
+      const tab = drawerState.tab
+      if (tab === 'overview') { body.innerHTML = overviewHtml(p); return }
+      if (tab === 'tools') { body.innerHTML = toolsHtml(p); return }
+      if (tab === 'params') {
+        body.innerHTML = '<div class="drawer-loading">正在读取参数…</div>'
+        const result = await api.pluginSettings(p.id).catch(() => null)
+        if (!drawerState || drawerState.id !== p.id || drawerState.tab !== 'params') return
+        drawerState.params = result
+        body.innerHTML = paramsHtml(p, result)
+        return
+      }
+      if (tab === 'logs') {
+        await loadDrawerLogs(p)
+        return
+      }
+      if (tab === 'guide') {
+        body.innerHTML = '<div class="drawer-loading">正在读取说明…</div>'
+        let values = {}
+        try { values = (await api.pluginSettings(p.id))?.values ?? {} } catch { /* 没参数也能看说明 */ }
+        if (!drawerState || drawerState.id !== p.id || drawerState.tab !== 'guide') return
+        body.replaceChildren(buildGuide(p, values))
+      }
+    }
+    function overviewHtml(p) {
+      const meta = MODE_META[p.mode] ?? MODE_META.alert
+      const issue = issueOf(p.id)
+      const small = p.small ?? {}
+      const medium = p.medium ?? {}
+      const large = p.large ?? {}
+      const caps = []
+      if (p.settings && typeof p.settings === 'object' && (p.settings.fields?.length ?? 0)) caps.push(`${p.settings.fields.length} 个参数`)
+      if (typeof p.settings === 'string') caps.push('自定义面板')
+      if (Array.isArray(p.tools) && p.tools.length) caps.push(`${p.tools.length} 个工具`)
+      if (p.background) caps.push('后台脚本')
+      if (p.guide) caps.push('使用说明')
+      if (!caps.length) caps.push('纯展示')
+      return `${issue ? `<div class="tool-note">启动失败：${esc(issue.reason ?? '插件没有加载起来')}</div>` : ''}
+        <div class="state-previews">
+          <div class="state-card"><div class="cap">小岛 · ${small.width ?? 134} × ${small.height ?? 38}</div><div class="pv-small"><span class="pv-pill">${esc(Array.from(String(p.icon ?? p.name ?? '?'))[0] ?? '?')}<b>${esc(p.name)}</b></span></div></div>
+          <div class="state-card"><div class="cap">中岛</div><div class="pv-medium"><div class="t">${esc(p.name)}</div><div class="tiles"><span>当前<b>—</b></span><span>状态<b>正常</b></span></div></div></div>
+          <div class="state-card"><div class="cap">大岛</div><div class="pv-large"><div class="row">今日 <span class="bar"><i></i></span></div><div class="row">本周 <span class="bar"><i></i></span></div><div class="row">更新 <span style="margin-left:auto">${esc(relativeTime(p.updatedAt) || '—')}</span></div></div></div>
+        </div>
+        <div class="kv">
+          <b>上岛方式</b><span>${meta.label}</span>
+          <b>占岛</b><span>${p.mode === 'resident' ? `${small.width ?? 134} px` : '不占岛'}</span>
+          <b>版本</b><span>v${esc(p.version)}</span>
+          <b>标识</b><span>${esc(p.id)}</span>
+          <b>来源</b><span>${p.sourceDir ? '本地开发目录' : '已安装插件'}</span>
+          <b>安装位置</b><span>${esc(p.sourceDir || '应用数据目录')}</span>
+        </div>
+        <div class="section-title">内容与能力</div>
+        <div class="caps">${caps.map(cap => `<span class="cap-chip${/脚本|面板/.test(cap) ? ' risky' : ''}">${esc(cap)}</span>`).join('')}</div>
+        <div class="section-title">开发者信息</div>
+        <div class="kv">
+          <b>运行时</b><span>${esc(p.runtime ?? 'web-app')}</span>
+          <b>入口</b><span>${esc(p.entry ?? '')}</span>
+          <b>优先级</b><span>${Number.isFinite(Number(p.priority)) ? p.priority : 50}</span>
+          <b>中岛</b><span>${medium.width ?? '默认'} × ${medium.height ?? '默认'}</span>
+          <b>大岛</b><span>${large.width ?? '默认'} × ${large.height ?? '默认'}</span>
+        </div>
+        ${p.mode === 'off' ? '<p class="note" style="margin-top:14px">插件已关闭；工具页里的数据来自上次运行。</p>' : ''}`
+    }
+
+    const TOOL_ICONS = {
+      refresh: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
+      bell: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>',
+      trash: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
+      copy: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
+      download: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>',
+      play: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5v14l11-7z"/></svg>',
+      skip: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5v14l9-7zM19 5v14"/></svg>',
+      panel: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></svg>',
+      chart: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19V5M4 19h16"/><path d="m7 15 3-4 3 2 4-6"/></svg>',
+      list: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>',
+      clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/></svg>',
+      music: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="15" r="2.5"/></svg>',
+    }
+    function sparkSvg(values) {
+      if (!Array.isArray(values)) return ''
+      const pointsInput = values.map(Number).filter(Number.isFinite)
+      if (pointsInput.length < 2) return ''
+      const series = pointsInput.slice(0, 120)
+      const width = 300, height = 44
+      const min = Math.min(...series), max = Math.max(...series)
+      const span = max - min || 1
+      const points = series.map((value, index) => [index * (width / (series.length - 1)), height - 6 - ((value - min) / span) * (height - 16)])
+      const line = points.map(point => point.join(',')).join(' ')
+      return `<div class="spark"><svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><polygon points="0,${height} ${line} ${width},${height}" fill="rgba(59,130,246,.12)"/><polyline points="${line}" fill="none" stroke="#3B82F6" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg></div>`
+    }
+    function toolViewHtml(view) {
+      if (!view || typeof view !== 'object') return ''
+      if (view.type === 'stats') {
+        const items = Array.isArray(view.items) ? view.items.slice(0, 6) : []
+        return `<div class="tool-stats">${items.map(item => `<div class="tstat"><small>${esc(item?.label ?? '')}</small><b class="${item?.tone === 'warn' ? 'warn' : ''}">${esc(item?.value ?? '')}</b></div>`).join('')}</div>${sparkSvg(view.spark)}`
+      }
+      if (view.type === 'list') {
+        const items = Array.isArray(view.items) ? view.items.slice(0, 12) : []
+        return `<div class="tool-list">${items.map(item => `<div class="trow${item?.tone === 'bad' ? ' bad' : ''}"><span class="nm">${esc(item?.name ?? '')}</span><span class="meta">${esc(item?.meta ?? '')}</span></div>`).join('')}</div>`
+      }
+      if (view.type === 'focus') {
+        const rounds = Math.max(0, Math.min(20, Number(view.rounds) || 0))
+        const done = Math.max(0, Math.min(rounds, Number(view.done) || 0))
+        return `<div class="tool-focus"><div><b class="big">${esc(view.value ?? '')}</b><small>${esc(view.note ?? '')}</small></div><div class="rounds">${Array.from({ length: rounds }, (_, index) => `<i class="${index < done ? 'on' : ''}"></i>`).join('')}</div></div>`
+      }
+      if (view.type === 'media') {
+        const progress = Math.max(0, Math.min(100, Number(view.progress) || 0))
+        return `<div class="tool-media"><span class="mcover">${TOOL_ICONS.music}</span><span class="mtrack"><b>${esc(view.track ?? '')}</b><small>${esc(view.source ?? '')}</small><span class="mbar"><i style="width:${progress}%"></i></span></span></div>`
+      }
+      if (view.type === 'text') return `<p class="tool-text">${esc(view.text ?? '')}</p>`
+      return ''
+    }
+    function toolCardHtml(p, tool, off) {
+      const actions = Array.isArray(tool.actions) ? tool.actions : []
+      const buttons = actions.map(action => {
+        const icon = TOOL_ICONS[action.icon] ?? ''
+        return `<button class="tool-btn${action.primary ? ' primary' : ''}${action.tone === 'danger' ? ' danger' : ''}" type="button" data-tool-action="${esc(action.id)}" data-tool-id="${esc(tool.id)}" ${off ? 'disabled' : ''} ${action.description ? `title="${esc(action.description)}"` : ''}>
+          <span class="ico${action.icon === 'refresh' ? ' spin' : ''}">${icon}</span><span>${esc(action.label)}</span><span class="st" hidden></span>
+        </button>`
+      }).join('')
+      const panel = tool.panel && typeof p.settings === 'string' ? '<button class="tool-link" type="button" data-open-panel>打开完整面板 ↗</button>' : ''
+      const updated = relativeTime(tool.updatedAt)
+      return `<section class="tool-card">
+        <div class="tool-head">
+          <span class="ti">${TOOL_ICONS[tool.icon] ?? TOOL_ICONS.chart}</span>
+          <span class="tt"><b>${esc(tool.title)}</b><small>${esc(tool.description ?? '')}</small></span>
+          ${updated ? `<span class="upd">${esc(updated)}</span>` : ''}
+        </div>
+        <div class="tool-body">
+          ${tool.notice ? `<div class="tool-note"><span>${esc(tool.notice)}</span></div>` : ''}
+          ${toolViewHtml(tool.view)}
+        </div>
+        ${buttons || panel ? `<div class="tool-foot">${buttons}<span class="spacer"></span>${panel}</div>` : ''}
+      </section>`
+    }
+    function toolsHtml(p) {
+      const off = p.mode === 'off'
+      const tools = Array.isArray(p.tools) ? p.tools : []
+      return `<p class="tool-intro">插件在这里展示自己的数据和按钮。操作它们不会改变上岛方式。</p>
+        ${off ? `<div class="tool-off"><span>插件已关闭，下面数据来自上次运行。</span><span class="spacer"></span><button type="button" data-open-plugin>打开插件</button></div>` : ''}
+        ${tools.map(tool => toolCardHtml(p, tool, off)).join('')}
+        ${p.settings && typeof p.settings === 'object' && (p.settings.fields?.length ?? 0) ? '<p class="tool-intro" style="margin:16px 0 0">刷新间隔、显示格式这类长期设置，在「参数」页里改。</p>' : ''}`
+    }
+    function paramsHtml(p, result) {
+      const fields = result?.schema?.fields ?? []
+      const values = result?.values ?? {}
+      if (!fields.length) return '<p class="note">这个插件没有声明参数。</p>'
+      return `<div class="params">${fields.map(field => {
+        const value = values[field.key] ?? field.default ?? ''
+        const label = `<span>${esc(field.label)}${field.description ? `<small>${esc(field.description)}</small>` : ''}</span>`
+        if (field.type === 'boolean') return `<label class="param">${label}<input type="checkbox" data-key="${esc(field.key)}" ${value ? 'checked' : ''} /></label>`
+        if (field.type === 'select') return `<label class="param">${label}<select data-key="${esc(field.key)}">${(field.options ?? []).map(option => `<option value="${esc(option.value)}"${String(option.value) === String(value) ? ' selected' : ''}>${esc(option.label)}</option>`).join('')}</select></label>`
+        if (field.type === 'textarea') return `<label class="param">${label}<textarea rows="2" data-key="${esc(field.key)}" placeholder="${esc(field.placeholder ?? '')}">${esc(value)}</textarea></label>`
+        const type = field.type === 'number' ? 'number' : field.type === 'password' ? 'password' : field.type === 'color' ? 'color' : 'text'
+        return `<label class="param">${label}<input type="${type}" data-key="${esc(field.key)}" value="${esc(value)}" placeholder="${esc(field.placeholder ?? '')}" ${field.min !== undefined ? `min="${esc(field.min)}"` : ''} ${field.max !== undefined ? `max="${esc(field.max)}"` : ''} /></label>`
+      }).join('')}</div>`
+    }
+    async function saveDrawerParams(p) {
+      const patch = {}
+      $$('#drawer-body [data-key]').forEach(input => {
+        const key = input.dataset.key
+        patch[key] = input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value
+      })
+      const result = await api.setPluginSettings(p.id, patch).catch(error => ({ ok: false, error: String(error) }))
+      if (result?.ok === false) { toast(result.error ?? '保存失败', 'error'); return }
+      toast('参数已保存，插件正在重载')
+      const save = drawerEl?.querySelector('[data-drawer-save]')
+      if (save) {
+        save.textContent = '已保存 ✓'
+        setTimeout(() => { if (save.isConnected) save.textContent = '保存' }, 1200)
+      }
+    }
+    async function loadDrawerLogs(p) {
+      const body = $('drawer-body')
+      if (!body) return
+      body.innerHTML = '<div class="drawer-loading">正在读取日志…</div>'
+      const result = await api.logs(p.id).catch(() => null)
+      if (!drawerState || drawerState.id !== p.id || drawerState.tab !== 'logs') return
+      const lines = result?.lines ?? []
+      body.innerHTML = `<div class="drawer-logbar"><button type="button" data-log-refresh>刷新</button><button type="button" data-log-clear>清空</button><span>最近 200 行</span></div><pre class="drawer-log">${esc(lines.length ? lines.join('\n') : '（还没有日志）')}</pre>`
+      const pre = body.querySelector('.drawer-log')
+      if (pre) pre.scrollTop = pre.scrollHeight
+      body.querySelector('[data-log-refresh]').onclick = () => loadDrawerLogs(p)
+      body.querySelector('[data-log-clear]').onclick = async () => { await api.clearLogs(p.id).catch(() => {}); await loadDrawerLogs(p) }
+    }
+    async function handleDrawerBodyClick(event, p) {
+      const openPanel = event.target.closest('[data-open-panel]')
+      if (openPanel) {
+        const result = await api.openPluginPanel(p.id).catch(error => ({ ok: false, error: String(error) }))
+        if (result?.ok === false) toast(result.error ?? '打开面板失败', 'error')
+        return
+      }
+      const openPlugin = event.target.closest('[data-open-plugin]')
+      if (openPlugin) {
+        await setPluginMode(p, p.supportsResident === false ? 'alert' : 'resident')
+        if (drawerState?.id === p.id) renderDrawer()
+        return
+      }
+      const button = event.target.closest('[data-tool-action]')
+      if (!button) return
+      const tool = Array.isArray(p.tools) ? p.tools.find(item => item.id === button.dataset.toolId) : null
+      const action = tool?.actions?.find(item => item.id === button.dataset.toolAction)
+      if (!tool || !action) return
+      const label = button.querySelector('span:not(.ico):not(.st)')
+      const status = button.querySelector('.st')
+      if (action.tone === 'danger' && button.dataset.armed !== '1') {
+        button.dataset.armed = '1'
+        button.classList.add('armed')
+        label.dataset.original = label.textContent
+        label.textContent = '再点一次'
+        setTimeout(() => {
+          if (!button.isConnected || button.dataset.armed !== '1') return
+          button.dataset.armed = ''
+          button.classList.remove('armed')
+          label.textContent = label.dataset.original
+        }, 3200)
+        return
+      }
+      button.dataset.armed = ''
+      button.classList.remove('armed')
+      button.classList.add('is-running')
+      button.disabled = true
+      status.hidden = false
+      status.textContent = '执行中…'
+      const result = await api.runPluginToolAction(p.id, tool.id, action.id).catch(error => ({ ok: false, error: String(error) }))
+      button.classList.remove('is-running')
+      button.disabled = false
+      if (result?.ok === false) {
+        status.hidden = true
+        label.textContent = label.dataset.original ?? label.textContent
+        toast(result.error ?? '执行失败', 'error')
+        return
+      }
+      button.classList.add('done')
+      status.textContent = '已发送'
+      toast(`${p.name}：${action.label} 已发送`)
+      setTimeout(() => {
+        if (!button.isConnected) return
+        button.classList.remove('done')
+        status.hidden = true
+        status.textContent = ''
+        label.textContent = label.dataset.original ?? label.textContent
+      }, 1800)
+    }
+
+    // ---------------------------------------------------------------- 使用说明
+    const guideNode = (tag, className, text) => {
+      const node = document.createElement(tag)
+      if (className) node.className = className
+      if (text !== undefined) node.textContent = text
+      return node
+    }
+    const fillGuide = (text, values) => String(text ?? '').replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (match, key) => {
+      const value = values[key]
+      return value === undefined || value === null ? match : String(value)
+    })
+    async function copyGuideText(text, button) {
+      try {
+        await navigator.clipboard.writeText(text)
+      } catch {
+        const area = document.createElement('textarea')
+        area.value = text
+        area.style.position = 'fixed'
+        area.style.opacity = '0'
+        document.body.append(area)
+        area.select()
+        document.execCommand('copy')
+        area.remove()
+      }
+      const label = button.textContent
+      button.textContent = '已复制 ✓'
+      setTimeout(() => { button.textContent = label }, 1200)
+    }
+    async function runGuideAction(action, pluginId) {
+      if (action?.kind === 'settings') {
+        if (drawerState?.id === pluginId) { drawerState.tab = 'params'; renderDrawer() }
+        else openDrawer(pluginId, 'params')
+        return
+      }
+      if (action?.kind === 'logs') {
+        if (drawerState?.id === pluginId) { drawerState.tab = 'logs'; renderDrawer() }
+        else openDrawer(pluginId, 'logs')
+        return
+      }
+      if (action?.kind === 'reload') {
+        const result = await api.reload(pluginId).catch(error => ({ ok: false, error: String(error) }))
+        toast(result?.ok ? `已重载 ${pluginId}` : `重载失败：${result?.error ?? '未知原因'}`, result?.ok ? 'ok' : 'error')
+        await refreshPlugins()
+      }
+    }
+    function guideActions(actions, pluginId) {
+      if (!Array.isArray(actions) || !actions.length) return null
+      const row = guideNode('div', 'guide-actions')
+      for (const action of actions) {
+        if (!action || typeof action.label !== 'string') continue
+        const button = guideNode('button', 'ghost wide', action.label)
+        button.type = 'button'
+        button.dataset.kind = action.kind
+        button.onclick = () => runGuideAction(action, pluginId)
+        row.append(button)
+      }
+      return row.childElementCount ? row : null
+    }
+    function buildGuide(plugin, values) {
+      const guide = plugin?.guide && typeof plugin.guide === 'object' ? plugin.guide : null
+      const root = guideNode('div', 'guide')
+      if (guide?.summary) root.append(guideNode('p', 'guide-summary', fillGuide(guide.summary, values)))
+      if (Array.isArray(guide?.requires) && guide.requires.length) {
+        const list = guideNode('ul', 'guide-requires')
+        for (const item of guide.requires) list.append(guideNode('li', '', fillGuide(item, values)))
+        root.append(list)
+      }
+      if (Array.isArray(guide?.steps) && guide.steps.length) {
+        const section = guideNode('section', 'guide-section')
+        section.append(guideNode('h3', '', '怎么用'))
+        guide.steps.forEach((step, index) => {
+          if (!step) return
+          const box = guideNode('div', 'guide-step')
+          box.append(guideNode('h4', '', `${index + 1}. ${fillGuide(step.title, values)}`))
+          if (step.text) box.append(guideNode('p', '', fillGuide(step.text, values)))
+          const code = typeof step.code === 'string' ? step.code : step.code?.value
+          if (code) {
+            const wrap = guideNode('div', 'guide-code')
+            const pre = guideNode('pre', '', fillGuide(code, values))
+            const copy = guideNode('button', 'ghost wide', '复制')
+            copy.type = 'button'
+            copy.onclick = () => copyGuideText(pre.textContent, copy)
+            wrap.append(pre, copy)
+            box.append(wrap)
+          }
+          const row = guideActions(step.actions, plugin.id)
+          if (row) box.append(row)
+          section.append(box)
+        })
+        root.append(section)
+      }
+      if (Array.isArray(guide?.troubleshooting) && guide.troubleshooting.length) {
+        const section = guideNode('section', 'guide-section')
+        section.append(guideNode('h3', '', '没反应？'))
+        for (const issue of guide.troubleshooting) {
+          if (!issue) continue
+          const box = guideNode('div', 'guide-trouble')
+          box.append(guideNode('b', '', fillGuide(issue.problem, values)))
+          if (issue.text) box.append(guideNode('p', '', fillGuide(issue.text, values)))
+          const row = guideActions(issue.actions, plugin.id)
+          if (row) box.append(row)
+          section.append(box)
+        }
+        root.append(section)
+      }
+      if (Array.isArray(guide?.links) && guide.links.length) {
+        const row = guideNode('div', 'guide-links')
+        for (const link of guide.links) {
+          if (!link || typeof link.label !== 'string' || typeof link.url !== 'string') continue
+          const button = guideNode('button', 'ghost wide', link.label)
+          button.type = 'button'
+          button.onclick = async () => {
+            const result = await api.openExternal(link.url).catch(error => ({ ok: false, error: String(error) }))
+            if (result && result.ok === false) toast(result.error ?? '打开链接失败', 'error')
+          }
+          row.append(button)
+        }
+        if (row.childElementCount) root.append(row)
+      }
+      if (!guide) {
+        root.append(guideNode('p', 'guide-summary', '这个插件没有提供使用说明。'))
+        root.append(guideNode('p', 'guide-meta', `${plugin.id}${plugin.version ? ` · v${plugin.version}` : ''}${plugin.mode === 'off' ? ' · 已关闭' : ''}`))
+        const fallback = guideActions([
+          ...(plugin.settings && typeof plugin.settings === 'object' && plugin.settings.fields?.length ? [{ kind: 'settings', label: '查看参数' }] : []),
+          { kind: 'logs', label: '查看日志' },
+          { kind: 'reload', label: '重载插件' },
+        ], plugin.id)
+        if (fallback) root.append(fallback)
+        root.append(guideNode('p', 'guide-meta', '插件作者可以在 plugin.json 里声明 guide 字段，为用户提供上手说明。'))
+      }
+      return root
+    }
+
+    // ---------------------------------------------------------------- 安装 / 空态入口
+    function openAddModal() {
+      openModal('添加插件', `
+        <div class="add-options">
+          <button class="add-option" type="button" id="add-install-dir">
+            <span class="add-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg></span>
+            <span class="add-copy"><b>选择文件夹安装</b><small>从本地开发目录安装；之后改文件会自动热重载。</small></span>
+            <span class="add-arrow">→</span>
+          </button>
+          <button class="add-option" type="button" id="add-import-package">
+            <span class="add-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+            <span class="add-copy"><b>导入插件包</b><small>选择别人分享的 .islandplugin 文件。</small></span>
+            <span class="add-arrow">→</span>
+          </button>
+          <button class="add-option" type="button" id="add-skill">
+            <span class="add-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 4.5 3.4 7.6 8 9 4.6-1.4 8-4.5 8-9V6l-8-3Z"/></svg></span>
+            <span class="add-copy"><b>下载插件生成 Skill 包</b><small>交给本地 AI，按规范帮你写一个插件。</small></span>
+            <span class="add-arrow">→</span>
+          </button>
+        </div>
+        <p class="note" style="margin:12px 0 0">插件就是普通网页：plugin.json + dist/ 里的 HTML / JS / CSS，装好后由宿主在岛上直接渲染。</p>`)
+      $('add-install-dir').onclick = installFromDirectory
+      $('add-import-package').onclick = importPluginPackage
+      $('add-skill').onclick = downloadPluginSkill
+    }
+    async function installFromDirectory() {
+      const directory = await api.pickPluginDirectory().catch(() => null)
+      if (!directory) return
+      const result = await api.installPlugin(directory).catch(error => ({ ok: false, error: String(error) }))
+      if (!result?.ok) { toast(result?.error ?? '安装失败', 'error'); return }
+      closeModal()
+      toast(`已安装 ${result.plugin?.name ?? ''}`)
+      await refreshPlugins()
+    }
+    async function importPluginPackage() {
+      const filePath = await api.pickPluginPackage().catch(() => null)
+      if (!filePath) return
+      const result = await api.installPluginPackage(filePath).catch(error => ({ ok: false, error: String(error) }))
+      if (!result?.ok) { toast(result?.error ?? '导入失败', 'error'); return }
+      closeModal()
+      if (result.kind === 'workbench') {
+        toast(`已导入工作台 ${result.plugin?.name ?? ''}（在「工作台」页确认能力后启用）`)
+        await refreshWorkbenches()
+      } else {
+        toast(`已安装插件 ${result.plugin?.name ?? ''}`)
+        await refreshPlugins()
+      }
+    }
+    async function downloadPluginSkill() {
+      const result = await api.downloadSkill('plugin').catch(error => ({ ok: false, error: String(error) }))
+      if (result?.canceled) return
+      if (!result?.ok) { toast(result?.error ?? '导出失败', 'error'); return }
+      toast(`已导出 Skill 包：${result.path}（${Math.round((result.bytes ?? 0) / 1024)} KB）`)
+    }
+
+    // ---------------------------------------------------------------- 关于 · 检查更新
+    function renderUpdateStatus(status) {
+      const el = $('about-update-status')
+      const note = $('about-update-note')
+      const button = $('about-check-update')
+      if (!el || !note || !button) return
+      const current = status?.currentVersion || settings.appVersion || '—'
+      let label = '尚未检查'
+      let cls = 'is-idle'
+      let noteText = '点「检查更新」获取最新版本。'
+      let buttonText = '检查更新'
+      let action = 'check'
+      if (updateBusy) {
+        label = '正在检查'
+        cls = 'is-idle'
+        noteText = '正在读取 GitHub Releases…'
+        buttonText = '检查中…'
+        action = 'busy'
+      } else if (status?.ok && status.hasUpdate) {
+        label = `有新版本 v${status.latestVersion}`
+        cls = 'is-new'
+        noteText = `当前 v${current} · 最新 v${status.latestVersion}${status.checkedAt ? ` · ${relativeTime(status.checkedAt)}` : ''}`
+        buttonText = '查看更新'
+        action = 'release'
+      } else if (status?.ok && status.checkedAt) {
+        label = '已是最新'
+        cls = 'is-ok'
+        noteText = `当前 v${current} · 上次检查 ${relativeTime(status.checkedAt) || '刚刚'}`
+      } else if (status && status.ok === false && status.checkedAt) {
+        label = '检查失败'
+        cls = 'is-error'
+        noteText = status.error || '无法连接 GitHub，稍后再试。'
+        buttonText = '重试'
+      }
+      el.className = `update-status ${cls}`
+      el.innerHTML = `<i></i><span>${esc(label)}</span>`
+      note.textContent = noteText
+      button.textContent = buttonText
+      button.dataset.updateAction = action
+      button.disabled = action === 'busy'
+      const version = $('about-version')
+      if (version) version.textContent = current === '—' ? '—' : `v${current}`
+      const auto = $('about-auto-check')
+      if (auto) auto.classList.toggle('on', settings.checkUpdatesOnLaunch !== false)
+      const autoNote = $('about-update-auto-note')
+      if (autoNote) autoNote.textContent = settings.checkUpdatesOnLaunch !== false ? '启动时自动检查' : '启动时自动检查已关闭'
+    }
+    async function refreshUpdateStatus() {
+      let status = null
+      try { status = await api.updateStatus() } catch { /* 宿主没有更新接口时保持未检查 */ }
+      updateStatus = status
+      if (status?.currentVersion) {
+        settings = { ...settings, appVersion: status.currentVersion }
+        if (status.checkUpdatesOnLaunch !== undefined) settings.checkUpdatesOnLaunch = status.checkUpdatesOnLaunch
+      }
+      render()
+      renderUpdateStatus(status)
+    }
+    async function runUpdateCheck() {
+      if (updateBusy) return
+      updateBusy = true
+      renderUpdateStatus(updateStatus)
+      const result = await api.checkForUpdates().catch(error => ({ ok: false, error: String(error), currentVersion: settings.appVersion, checkedAt: Date.now() }))
+      updateBusy = false
+      updateStatus = result
+      renderUpdateStatus(result)
+      if (result?.ok) toast(result.hasUpdate ? `发现新版本 v${result.latestVersion}` : '已是最新版本')
+      else toast(`检查更新失败：${result?.error ?? '未知原因'}`, 'error')
+    }
+    const RELEASES_URL = 'https://github.com/954115192/Activity-island/releases'
+
+    // ---------------------------------------------------------------- 交互绑定
+    document.querySelectorAll('[data-plugin-tab]').forEach(button => {
+      button.onclick = () => {
+        pluginTab = button.dataset.pluginTab
+        renderPluginPage()
+      }
+    })
+    $('plugin-search').addEventListener('input', event => {
+      pluginQuery = event.target.value
+      renderPluginPage()
+    })
+    $('search-clear').onclick = () => {
+      pluginQuery = ''
+      $('plugin-search').value = ''
+      renderPluginPage()
+    }
+    $('plugin-add').onclick = openAddModal
+    $('empty-add').onclick = openAddModal
+    $('empty-import').onclick = importPluginPackage
+    $('dev-plugin-dir').onclick = async () => {
+      const result = await api.openPluginsDirectory().catch(error => ({ ok: false, error: String(error) }))
+      if (result?.ok === false) toast(result.error ?? '打开目录失败', 'error')
+    }
+    $('dev-plugin-skill').onclick = downloadPluginSkill
+    $('dev-plugin-logs').onclick = async () => {
+      const result = await api.openHostLogs().catch(error => ({ ok: false, error: String(error) }))
+      if (result?.ok === false) toast(result.error ?? '打开目录失败', 'error')
+    }
+
+    $('plugin-list').addEventListener('click', event => {
+      const controls = event.target.closest('.plugin-controls')
+      const modeButton = event.target.closest('[data-mode-id]')
+      if (modeButton) {
+        const p = pluginById(modeButton.dataset.modeId)
+        if (p) openModePopover(modeButton, p)
+        return
+      }
+      const moreButton = event.target.closest('[data-more]')
+      if (moreButton) {
+        const p = pluginById(moreButton.dataset.more)
+        if (p) openMorePopover(moreButton, p)
+        return
+      }
+      const retry = event.target.closest('[data-retry]')
+      if (retry) {
+        void (async () => {
+          const id = retry.dataset.retry
+          const result = await api.reload(id).catch(error => ({ ok: false, error: String(error) }))
+          toast(result?.ok ? `已重载 ${id}` : `重试失败：${result?.error ?? '未知原因'}`, result?.ok ? 'ok' : 'error')
+          await refreshPlugins()
+        })()
+        return
+      }
+      if (controls) return
+      const row = event.target.closest('.plugin-row')
+      if (row?.dataset.pluginId) openDrawer(row.dataset.pluginId)
+    })
+    $('plugin-list').addEventListener('keydown', event => {
+      if (event.key !== 'Enter') return
+      const row = event.target.closest('.plugin-row')
+      if (row?.dataset.pluginId) openDrawer(row.dataset.pluginId)
+    })
+
+    $('plugin-island').addEventListener('click', event => {
+      if (Date.now() < suppressChipClickUntil) { event.preventDefault(); event.stopPropagation(); return }
+      const chip = event.target.closest('.chip')
+      if (chip?.dataset.chip) openDrawer(chip.dataset.chip)
+    })
+    $('plugin-island').addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return
+      const chip = event.target.closest('.chip')
+      if (!chip?.dataset.chip) return
+      event.preventDefault()
+      openDrawer(chip.dataset.chip)
+    })
+    function clearChipDropMarks() {
+      document.querySelectorAll('.chip.drop-before, .chip.drop-after').forEach(el => el.classList.remove('drop-before', 'drop-after'))
+    }
+    /** 按指针 x 找最近的插入边界：越过某芯片中线就插到它后面，空白处按末尾算。 */
+    function chipDropInsertAt(clientX) {
+      if (!chipDrag) return -1
+      const full = orderedPlugins(pluginList).map(item => item.id)
+      const without = full.filter(id => id !== chipDrag.id)
+      const chips = [...$('plugin-island').querySelectorAll('.chip')].filter(chip => chip.dataset.chip && chip.dataset.chip !== chipDrag.id)
+      for (const chip of chips) {
+        const rect = chip.getBoundingClientRect()
+        if (clientX < rect.left + rect.width / 2) {
+          const index = without.indexOf(chip.dataset.chip)
+          return index < 0 ? without.length : index
+        }
+      }
+      return without.length
+    }
+    function resetChipDrag() {
+      if (!chipDrag) return
+      chipDrag.chip.classList.remove('dragging')
+      chipDrag.ghost?.remove()
+      clearChipDropMarks()
+      document.body.classList.remove('chip-dragging')
+      chipDrag = null
+    }
+    async function saveChipOrder(dragged, insertAt) {
+      const full = orderedPlugins(pluginList).map(item => item.id)
+      const without = full.filter(id => id !== dragged)
+      without.splice(Math.max(0, Math.min(insertAt, without.length)), 0, dragged)
+      if (without.join('|') === full.join('|')) return
+      const next = await api.setPluginOrder(without).catch(() => null)
+      if (!next) { toast('顺序保存失败', 'error'); return }
+      settings = { ...settings, ...next }
+      await refreshPlugins()
+      toast('顺序已保存')
+    }
+
+    // 不用 HTML5 拖拽：button 的原生 dragstart 在部分 Windows/Chromium 组合下不触发。
+    // Pointer 事件在鼠标和触控板下都稳定，而且可以自己做浮层与插入线。
+    $('plugin-island').addEventListener('pointerdown', event => {
+      if (event.button !== 0) return
+      const chip = event.target.closest('.chip')
+      if (!chip?.dataset.chip) return
+      chipDrag = { id: chip.dataset.chip, chip, startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY, active: false, ghost: null }
+    })
+    document.addEventListener('pointermove', event => {
+      if (!chipDrag) return
+      chipDrag.x = event.clientX
+      chipDrag.y = event.clientY
+      if (!chipDrag.active) {
+        if (Math.hypot(event.clientX - chipDrag.startX, event.clientY - chipDrag.startY) < 6) return
+        chipDrag.active = true
+        const ghost = chipDrag.chip.cloneNode(true)
+        ghost.classList.add('chip-ghost')
+        ghost.removeAttribute('data-chip')
+        ghost.removeAttribute('tabindex')
+        ghost.setAttribute('aria-hidden', 'true')
+        document.body.append(ghost)
+        chipDrag.ghost = ghost
+        chipDrag.chip.classList.add('dragging')
+        document.body.classList.add('chip-dragging')
+      }
+      event.preventDefault()
+      if (chipDrag.ghost) {
+        chipDrag.ghost.style.left = `${event.clientX}px`
+        chipDrag.ghost.style.top = `${event.clientY}px`
+      }
+      clearChipDropMarks()
+      const element = document.elementFromPoint(event.clientX, event.clientY)
+      if (!element || !$('plugin-island').contains(element)) return
+      const target = element.closest('.chip')
+      if (!target || target === chipDrag.chip || target.dataset.chip === chipDrag.id) return
+      const rect = target.getBoundingClientRect()
+      target.classList.add(event.clientX > rect.left + rect.width / 2 ? 'drop-after' : 'drop-before')
+    }, { passive: false })
+    document.addEventListener('pointerup', event => {
+      if (!chipDrag) return
+      const drag = chipDrag
+      if (!drag.active) { chipDrag = null; return }
+      event.preventDefault()
+      suppressChipClickUntil = Date.now() + 400
+      const element = document.elementFromPoint(event.clientX, event.clientY)
+      const inside = element && $('plugin-island').contains(element)
+      const insertAt = inside ? chipDropInsertAt(event.clientX) : -1
+      const dragged = drag.id
+      resetChipDrag()
+      if (insertAt >= 0) void saveChipOrder(dragged, insertAt)
+    })
+    document.addEventListener('pointercancel', resetChipDrag)
+    window.addEventListener('blur', resetChipDrag)
+
+    $('about-check-update').onclick = async () => {
+      if ($('about-check-update').dataset.updateAction === 'release' && updateStatus?.releaseUrl) {
+        await api.openExternal(updateStatus.releaseUrl).catch(() => {})
+        return
+      }
+      await runUpdateCheck()
+    }
+    $('about-auto-check').onclick = async () => {
+      const next = !$('about-auto-check').classList.contains('on')
+      const result = await api.setCheckUpdatesOnLaunch(next).catch(error => ({ ok: false, error: String(error) }))
+      if (result?.ok === false) { toast(result.error ?? '设置失败', 'error'); return }
+      settings = { ...settings, checkUpdatesOnLaunch: result.enabled ?? next }
+      render()
+      renderUpdateStatus(updateStatus)
+      toast(settings.checkUpdatesOnLaunch ? '已开启启动时检查更新' : '已关闭启动时检查更新')
+    }
+    $('about-changelog').onclick = () => { void api.openExternal(RELEASES_URL).catch(() => {}) }
+
+    document.addEventListener('click', event => {
+      if (!event.target.closest('.mode-wrap') && !event.target.closest('.more-wrap')) closePopovers()
+    })
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return
+      if (chipDrag) { resetChipDrag(); suppressChipClickUntil = Date.now() + 400; return }
+      closePopovers()
+      if (drawerEl) { closeDrawer(); return }
+      if (!modal.hidden) closeModal()
+    })
+    api.onPluginTools?.(({ pluginId, tools }) => {
+      const p = pluginById(pluginId)
+      if (!p) return
+      p.tools = Array.isArray(tools) ? tools : []
+      if (drawerState?.id === pluginId && drawerState.tab === 'tools') renderDrawer()
+    })
+
+    // ---------------------------------------------------------------- 工作台
+    // 工作台和插件是**独立的两块，只是风格相似**：列表只显示「名字 + 示例图」，
+    // 点进去才看详情（能力告知、参数、日志、重载、导出、卸载）。独占启用 —— 一次只有一个。
+    let workbenchList = []
+    let workbenchTrust = ''
+    /** 碰得到机器和网络的能力：展示时标红，让用户先看到最该注意的几行。 */
+    const RISKY_CAPS = ['run', 'http', 'open']
+    const notice = (text) => {
+      const box = $('workbench-notice')
+      box.textContent = text
+      box.hidden = !text
+      if (text) setTimeout(() => { if (box.textContent === text) box.hidden = true }, 8000)
+    }
+    const capChips = (item) => {
+      const unack = new Set(item.unacknowledged ?? [])
+      return (item.capabilities ?? []).map(cap => {
+        const classes = ['wb-cap']
+        if (RISKY_CAPS.includes(cap.capability)) classes.push('risky')
+        if (unack.has(cap.capability)) classes.push('new')
+        return `<span class="${classes.join(' ')}" title="${cap.capability}">${cap.label}${unack.has(cap.capability) ? '（未确认）' : ''}</span>`
+      }).join('')
+    }
+    /** 示例图：作者提供了就用，没有就用名字首字占位（不假装有截图）。 */
+    const thumb = (item) => item.preview
+      ? `<div class="wb-thumb"><img src="${item.preview}" alt="${item.name} 示例图" /></div>`
+      : `<div class="wb-thumb"><span class="letter">${(item.name || item.id || '?').slice(0, 1)}</span></div>`
+
+    function renderWorkbenches(payload) {
+      workbenchList = payload?.workbenches ?? []
+      workbenchTrust = payload?.trustNotice ?? ''
+      $('workbench-trust').textContent = workbenchTrust
+      $('workbench-list').innerHTML = workbenchList.length
+        ? workbenchList.map(item => `<button class="wb-card" data-wb-open="${item.id}" type="button">
+            ${thumb(item)}
+            <div class="wb-name"><span>${item.name}</span>${item.active ? '<span class="wb-flag">使用中</span>' : ''}${item.builtin ? '<span class="wb-badge">内置</span>' : ''}</div>
+            <div class="wb-meta">v${item.version}${(item.unacknowledged ?? []).length ? ' · 待确认能力' : ''}</div>
+          </button>`).join('')
+        : '<p class="note">还没有工作台。</p>'
+
+      document.querySelectorAll('[data-wb-open]').forEach(card => card.onclick = () => openWorkbenchDetail(card.dataset.wbOpen))
+    }
+
+    /** 详情：能力告知 + 启用 + 参数 + 日志/重载/导出/卸载。列表本身保持克制。 */
+    function openWorkbenchDetail(id) {
+      const item = workbenchList.find(entry => entry.id === id)
+      if (!item) return
+      const pending = item.unacknowledged ?? []
+      modalTitle.textContent = item.name
+      modal.hidden = false
+      modalContent.innerHTML = `
+        ${item.preview ? `<div class="wb-detail-thumb"><img src="${item.preview}" alt="${item.name} 示例图" /></div>` : ''}
+        ${item.description ? `<p class="note" style="margin:10px 0 0">${item.description}</p>` : ''}
+        <div class="wb-kv">
+          <b>状态</b><span>${item.active ? '● 正在使用（右键小岛打开它）' : '未启用'}</span>
+          <b>版本</b><span>v${item.version}${item.builtin ? ' · 内置，随宿主分发' : ''}</span>
+          <b>标识</b><span><code>${item.id}</code></span>
+          ${item.sourceDir ? `<b>源码</b><span><code>${item.sourceDir}</code></span>` : ''}
+        </div>
+        <div class="card-head" style="margin:14px 0 6px"><h2>它会做什么</h2><span class="hint">${pending.length ? `${pending.length} 项待确认` : '已确认'}</span></div>
+        <div class="wb-caps">${capChips(item)}</div>
+        ${pending.length ? '<p class="note" style="margin-top:10px;color:#ffd9a0">启用前需要你确认上面标着「未确认」的能力 —— 确认后它就能真的做这些事。</p>' : ''}
+        <div class="modal-actions">
+          <span class="hint">${workbenchTrust}</span>
+          <button class="ghost wide" data-wb-params="${item.id}" ${item.hasSettings ? '' : 'hidden'}>参数${item.paramCount ? `（${item.paramCount}）` : ''}</button>
+          <button class="ghost wide" data-wb-logs="${item.id}">日志</button>
+          <button class="ghost wide" data-wb-reload="${item.id}" title="改开发目录里的文件后重新加载（清单里的能力声明也会重新读）">重载</button>
+          <button class="ghost wide" data-wb-export="${item.id}" ${item.builtin ? 'hidden' : ''}>导出插件包</button>
+          <button class="danger" data-wb-uninstall="${item.id}" ${item.builtin ? 'hidden' : ''}>卸载</button>
+          ${item.active ? '' : `<button class="primary" data-wb-activate="${item.id}">${pending.length ? '确认并启用' : '启用'}</button>`}
+        </div>`
+
+      modalContent.querySelectorAll('[data-wb-activate]').forEach(button => button.onclick = () => activateWorkbench(button.dataset.wbActivate))
+      modalContent.querySelectorAll('[data-wb-params]').forEach(button => button.onclick = () => openWorkbenchParams(button.dataset.wbParams))
+      modalContent.querySelectorAll('[data-wb-logs]').forEach(button => button.onclick = () => openWorkbenchLogs(button.dataset.wbLogs))
+      modalContent.querySelectorAll('[data-wb-reload]').forEach(button => button.onclick = async () => {
+        const result = await api.reloadWorkbench(button.dataset.wbReload)
+        if (!result?.ok) { notice(result?.error ?? '重载失败'); return }
+        notice(`已重载 ${button.dataset.wbReload}${(result.capabilities ?? []).length ? `（声明了 ${result.capabilities.join('、')}）` : ''}`)
+        await refreshWorkbenches()
+        openWorkbenchDetail(button.dataset.wbReload)
+      })
+      modalContent.querySelectorAll('[data-wb-export]').forEach(button => button.onclick = async () => {
+        const result = await api.exportWorkbenchPackage(button.dataset.wbExport)
+        if (result?.canceled) { notice('已取消导出'); return }
+        if (!result?.ok) { notice(result?.error ?? '导出失败'); return }
+        notice(`已导出：${result.path}（${Math.round((result.bytes ?? 0) / 1024)} KB）—— 别人用「导入插件包」直接装`)
+      })
+      modalContent.querySelectorAll('[data-wb-uninstall]').forEach(button => button.onclick = () => twoStep(button, '确认卸载', async () => {
+        const result = await api.uninstallWorkbench(button.dataset.wbUninstall)
+        if (!result?.ok) { notice(result?.error ?? '卸载失败'); return }
+        modal.hidden = true; modalContent.innerHTML = ''
+        notice(`已卸载 ${button.dataset.wbUninstall}`)
+        await refreshWorkbenches()
+      }))
+    }
+    /** 参数：workbench.json 的 settings.fields，宿主渲染表单（和插件同一套体验）。 */
+    async function openWorkbenchParams(id) {
+      modalTitle.textContent = `参数 · ${id}`
+      modal.hidden = false
+      modalContent.innerHTML = ''
+      const result = await api.workbenchSettings(id)
+      const fields = result?.schema?.fields ?? []
+      const values = result?.values ?? {}
+      if (!fields.length) { modalContent.innerHTML = '<p class="note">这个工作台没有声明参数。</p>'; return }
+      modalContent.innerHTML = `<div class="params">${fields.map(field => {
+        const value = values[field.key] ?? field.default ?? ''
+        const label = `<span>${field.label}${field.description ? `<small>${field.description}</small>` : ''}</span>`
+        if (field.type === 'boolean') return `<label class="param">${label}<input type="checkbox" data-key="${field.key}" ${value ? 'checked' : ''} /></label>`
+        if (field.type === 'select') return `<label class="param">${label}<select data-key="${field.key}">${(field.options ?? []).map(option => `<option value="${option.value}"${String(option.value) === String(value) ? ' selected' : ''}>${option.label}</option>`).join('')}</select></label>`
+        if (field.type === 'textarea') return `<label class="param">${label}<textarea rows="2" data-key="${field.key}" placeholder="${field.placeholder ?? ''}">${value}</textarea></label>`
+        const type = field.type === 'number' ? 'number' : field.type === 'password' ? 'password' : field.type === 'color' ? 'color' : 'text'
+        return `<label class="param">${label}<input type="${type}" data-key="${field.key}" value="${String(value).replace(/"/g, '&quot;')}" placeholder="${field.placeholder ?? ''}" /></label>`
+      }).join('')}</div>
+      <div class="modal-actions"><span class="hint">保存后工作台立刻收到</span><button class="primary" id="wb-save-params">保存参数</button></div>`
+      $('wb-save-params').onclick = async () => {
+        const patch = {}
+        modalContent.querySelectorAll('[data-key]').forEach(input => {
+          const key = input.dataset.key
+          patch[key] = input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value
+        })
+        const saved = await api.setWorkbenchSettings(id, patch)
+        if (!saved?.ok) { notice(saved?.error ?? '保存失败'); return }
+        const button = $('wb-save-params')
+        button.textContent = '已保存 ✓'
+        setTimeout(() => { button.textContent = '保存参数' }, 1200)
+      }
+    }
+
+    async function refreshWorkbenches() {
+      const payload = await api.workbenches().catch(() => null)
+      if (!payload) { notice('读取工作台列表失败'); return }
+      renderWorkbenches(payload)
+      const issues = payload.issues ?? []
+      const box = $('workbench-issues')
+      if (!issues.length) { box.hidden = true; box.innerHTML = ''; return }
+      box.hidden = false
+      box.innerHTML = `<div class="card-head"><h2>没加载起来的工作台</h2><span class="hint">${issues.length} 个</span></div>`
+        + issues.map(issue => `<div class="issue"><b>${issue.id ?? '未知 id'}</b><small>${issue.reason}</small><small>${issue.directory}</small></div>`).join('')
+    }
+    /**
+     * 启用工作台。有未确认的能力时先弹宿主自己的确认框，把**它要做什么**逐条列出来 ——
+     * 工作台可分发，装上就能跑本机程序，所以这一步不能省。
+     */
+    async function activateWorkbench(id) {
+      const item = workbenchList.find(entry => entry.id === id)
+      const pending = (item?.unacknowledged ?? [])
+      if (pending.length) {
+        const labels = (item.capabilities ?? []).filter(cap => pending.includes(cap.capability))
+        const confirmed = await confirmCapabilities(item, labels)
+        if (!confirmed) return
+        const ack = await api.acknowledgeWorkbench(id, pending)
+        if (!ack?.ok) { notice('记录确认失败'); return }
+      }
+      const result = await api.activateWorkbench(id)
+      if (!result?.ok) {
+        notice(result?.error === 'capabilities-not-acknowledged' ? `还有未确认的能力：${(result.missing ?? []).join('、')}` : (result?.error ?? '启用失败'))
+        return
+      }
+      notice(`已启用 ${item?.name ?? id}（右键小岛即可打开）`)
+      await refreshWorkbenches()
+    }
+    /** 用宿主自己的模态框做能力确认，不用原生 confirm。 */
+    function confirmCapabilities(item, labels) {
+      return new Promise(resolve => {
+        modalTitle.textContent = `启用「${item.name}」前请确认`
+        modal.hidden = false
+        modalContent.innerHTML = `<p class="note" style="margin:0 0 10px">这个工作台声明了以下能力。启用后它可以真的做这些事：</p>
+          <div class="wb-caps">${labels.map(cap => `<span class="wb-cap ${RISKY_CAPS.includes(cap.capability) ? 'risky' : ''}">${cap.label}</span>`).join('')}</div>
+          <div class="modal-actions"><span class="hint">${workbenchTrust}</span><button class="ghost wide" id="wb-cancel">取消</button><button class="primary" id="wb-confirm">确认并启用</button></div>`
+        const done = (value) => { modal.hidden = true; modalContent.innerHTML = ''; resolve(value) }
+        $('wb-confirm').onclick = () => done(true)
+        $('wb-cancel').onclick = () => done(false)
+      })
+    }
+    let logPluginId = null
+    async function refreshLogs() {
+      if (!logPluginId) return
+      const result = await api.logs(logPluginId).catch(() => null)
+      const lines = result?.lines ?? []
+      const body = $('plugin-log-body')
+      if (!body) return
+      body.textContent = lines.length ? lines.join('\n') : '（还没有日志）'
+      body.scrollTop = body.scrollHeight
+    }
+    async function openWorkbenchLogs(id) {
+      modalTitle.textContent = `日志 · ${id}`
+      modal.hidden = false
+      modalContent.innerHTML = '<div class="modal-actions"><button class="ghost wide" id="log-refresh">刷新</button><button class="ghost wide" id="log-clear">清空</button></div><pre id="plugin-log-body"></pre>'
+      logPluginId = `__workbench__${id}`
+      $('log-refresh').onclick = refreshLogs
+      $('log-clear').onclick = async () => { await api.clearLogs(logPluginId); await refreshLogs() }
+      await refreshLogs()
+    }
+    // ---------------------------------------------------------------- 插件安装（原插件工坊并入）
+    $('workbench-skill').onclick = async () => {
+      const result = await api.downloadSkill('workbench')
+      if (result?.canceled) return
+      if (!result?.ok) { notice(result?.error ?? '导出失败'); return }
+      notice(`已导出 Skill 包：${result.path}（${Math.round((result.bytes ?? 0) / 1024)} KB）—— 解压到本地 AI 的 skills 目录`)
+    }
+    $('workbench-install').onclick = async () => {
+      const directory = await api.pickWorkbenchDirectory()
+      if (!directory) return
+      const result = await api.installWorkbench(directory)
+      if (!result?.ok) { notice(result?.error ?? '安装失败'); return }
+      notice(`已安装 ${result.workbench?.name ?? ''}（点开卡片确认能力后就能启用）`)
+      await refreshWorkbenches()
+    }
+    $('workbench-import').onclick = async () => {
+      const result = await api.importWorkbenchPackage()
+      if (result?.canceled) return
+      if (!result?.ok) { notice(result?.error ?? '导入失败'); return }
+      // 同一个入口插件包也能装：按包内清单自动分流。
+      if (result.kind === 'workbench') { notice(`已导入控制台 ${result.name}（确认能力后启用）`); await refreshWorkbenches() }
+      else notice(`已导入插件 ${result.name}（在「插件」页里管理）`)
+    }
+    // 弹窗只认 × 按钮和 Esc 关闭：点遮罩/窗口外不关闭，避免误触把填了一半的表单关掉。
+    document.querySelectorAll('[data-tab]').forEach(button => button.onclick = () => {
+      closeDrawer()
+      closePopovers()
+      document.querySelectorAll('[data-tab]').forEach(item => item.classList.toggle('active', item === button))
+      document.querySelectorAll('main > section').forEach(item => item.hidden = item.id !== button.dataset.tab)
+      if (button.dataset.tab === 'plugins') void refreshPlugins({ initial: !pluginLoaded })
+      if (button.dataset.tab === 'notifications') void refreshNotifications()
+      if (button.dataset.tab === 'guide') void initGuideTarget()
+      if (button.dataset.tab === 'workbench') void refreshWorkbenches()
+      if (button.dataset.tab === 'about') void refreshUpdateStatus()
+    })
+    document.querySelectorAll('[data-idle]').forEach(button => button.onclick = async () => { settings = await api.setIdleMode(button.dataset.idle); render() })
+    $('save-top').onclick = async () => { settings = await api.setIslandTop($('top').value); render() }
+    $('save-scale').onclick = async () => { settings = await api.setMiniScale($('scale').value); render() }
+    $('launch-at-login').onchange = async () => {
+      const input = $('launch-at-login')
+      const status = $('launch-at-login-status')
+      const result = await api.setLaunchAtLogin(input.checked).catch(error => ({ ok: false, error: String(error) }))
+      if (!result?.ok) {
+        input.checked = !input.checked
+        status.textContent = '设置失败：' + (result?.error ?? '未知原因')
+        return
+      }
+      settings = { ...settings, launchAtLogin: result.enabled === true }
+      input.checked = settings.launchAtLogin
+      status.textContent = settings.launchAtLogin ? '已开启：登录 Windows 后会自动启动。' : '已关闭：不再随 Windows 启动。'
+    }
+    $('scale').oninput = () => $('scale-value').textContent = `${Number($('scale').value).toFixed(2)}×`
+    $('close').onclick = () => api.close()
+
+    // ---------------- 通知页 ----------------
+    // 内置通知模块的设置走的是插件参数通道（storage + manifest.settings），
+    // 这里直接复用同一套渲染，避免两套表单各自漂移。
+    const NOTIF_ID = 'system-notifications'
+    let notifSchema = []
+
+    async function refreshNotifications() {
+      const box = $('notif-settings')
+      const statusBox = $('notif-status')
+      const payload = await api.pluginSettings(NOTIF_ID).catch(() => null)
+      notifSchema = payload?.schema?.fields ?? []
+      const values = payload?.values ?? {}
+      const status = (await api.notificationStatus().catch(() => null))?.status ?? null
+
+      if (!notifSchema.length) {
+        box.innerHTML = '<div class="card"><p class="note">通知模块未加载。请检查应用是否完整。</p></div>'
+        return
+      }
+
+      // 状态卡：两个来源的实时状态
+      const win = status?.windows ?? {}
+      const local = status?.localTrigger ?? {}
+      const scope = status?.scope === 'lan' ? 'lan' : 'local'
+      const accessText = win.access === 'allowed' ? '监听中' : win.access === 'denied' ? '未授权' : win.access === 'unspecified' ? '待授权' : win.access === 'unavailable' ? '不支持' : '连接中'
+      const accessTone = win.access === 'allowed' ? 'ok' : 'warn'
+      const localText = local.state === 'running' ? '运行中' : local.state === 'error' ? '启动失败' : local.state === 'degraded' ? '异常' : '未启用'
+      const endpoints = Array.isArray(status?.endpoints) ? status.endpoints : (status?.endpoint ? [status.endpoint] : [])
+      const primaryEndpoint = endpoints[0] ?? ''
+      const extraCount = Math.max(0, endpoints.length - 1)
+      const scopeLabel = scope === 'lan' ? '局域网内所有设备' : '仅本机'
+      statusBox.innerHTML =
+        '<div class="card">' +
+          '<div class="card-head"><h2>运行状态</h2><span class="hint">' + (status?.totalRecords ?? 0) + ' 条历史</span></div>' +
+          '<div class="line" style="gap:18px;flex-wrap:wrap">' +
+            '<span class="hint">Windows 通知 <b class="notif-dot ' + accessTone + '">' + accessText + '</b></span>' +
+            '<span class="hint">触发接口 <b class="notif-dot ' + (local.state === 'running' ? 'ok' : 'warn') + '">' + localText + '</b></span>' +
+            '<span class="hint">可访问范围 <b class="notif-dot ' + (scope === 'lan' ? 'warn' : 'ok') + '">' + scopeLabel + '</b></span>' +
+          '</div>' +
+          (primaryEndpoint
+            ? '<div class="line" style="margin-top:10px"><span class="hint">端点</span><code class="notif-code">' + esc(primaryEndpoint) + '</code></div>' +
+              (extraCount > 0 ? '<div class="line" style="margin-top:4px"><span class="hint"></span><span class="hint">另有 ' + extraCount + ' 个网卡地址同样可访问（同端口）</span></div>' : '')
+            : '') +
+          (status?.token ? '<div class="line" style="margin-top:8px"><span class="hint">令牌</span><code class="notif-code">' + status.token + '</code><button class="ghost" id="notif-copy-token" type="button">复制</button><button class="ghost" id="notif-rotate-token" type="button">重置</button></div>' : '') +
+        '</div>' +
+        (scope === 'lan'
+          ? '<div class="card trust" style="margin-bottom:14px">已开放到局域网：同一网段内任何拿到令牌的设备都能向这台电脑推送通知。首次绑定可能触发 Windows 防火墙提示，请在提示中允许「专用网络」；被拒绝时局域网内会连不上，可到「Windows Defender 防火墙 → 允许应用通过防火墙」里放行。</div>'
+          : '') +
+        (win.access === 'denied' || win.access === 'unspecified'
+          ? '<div class="card trust" style="margin-bottom:14px">还没有通知访问权限。到「设置 → 隐私和安全性 → 通知」开启「允许应用访问你的通知」，授权后几秒自动生效。<button class="ghost" id="notif-open-win-settings" type="button">打开系统设置</button></div>'
+          : '') +
+        (local.state === 'error' && local.detail ? '<div class="card trust" style="margin-bottom:14px">' + esc(local.detail) + '</div>' : '')
+
+      // 参数表单
+      const field = (f) => {
+        const value = values[f.key] ?? f.default ?? ''
+        const label = '<span>' + f.label + (f.description ? '<small>' + f.description + '</small>' : '') + '</span>'
+        if (f.type === 'boolean') return '<label class="toggle-row notif-toggle">' + '<input type="checkbox" data-key="' + f.key + '"' + (value ? ' checked' : '') + ' /><span>' + f.label + (f.description ? '<small>' + f.description + '</small>' : '') + '</span></label>'
+        if (f.type === 'number') return '<label class="param">' + label + '<input type="number" data-key="' + f.key + '" value="' + value + '" min="' + (f.min ?? '') + '" max="' + (f.max ?? '') + '" /></label>'
+        if (f.type === 'select') {
+          const options = (f.options ?? []).map(option =>
+            '<option value="' + esc(option.value) + '"' + (String(option.value) === String(value) ? ' selected' : '') + '>' + esc(option.label) + '</option>'
+          ).join('')
+          return '<label class="param">' + label + '<select data-key="' + f.key + '">' + options + '</select></label>'
+        }
+        return '<label class="param">' + label + '<input type="text" data-key="' + f.key + '" value="' + String(value).replace(/"/g, '&quot;') + '" placeholder="' + (f.placeholder ?? '') + '" /></label>'
+      }
+      const groups = [
+        { title: '提醒', keys: ['alertEnabled', 'ttlInfo', 'ttlWarn', 'ttlCritical', 'allowApps', 'ignoreApps', 'quietEnabled', 'quietStart', 'quietEnd'], hint: '只影响是否提醒与停留多久，历史始终记录' },
+        { title: 'Windows 通知', keys: ['windowsEnabled'], hint: '读取通知中心的新通知' },
+        { title: '触发接口', keys: ['localApiEnabled', 'localApiScope', 'localApiPort'], hint: '供本机或局域网程序推送通知' },
+      ]
+      box.innerHTML = groups.map(group => {
+        const fields = notifSchema.filter(f => group.keys.includes(f.key))
+        if (!fields.length) return ''
+        return '<div class="card"><div class="card-head"><h2>' + group.title + '</h2><span class="hint">' + group.hint + '</span></div>' +
+          '<div class="params">' + fields.map(field).join('') + '</div></div>'
+      }).join('') +
+      '<div class="card"><div class="line"><button class="primary" id="notif-save" type="button">保存设置</button><span class="hint" id="notif-save-hint"></span></div></div>'
+
+      $('notif-count').textContent = (status?.totalRecords ?? 0) + ' 条'
+      $('notif-copy-token') && ($('notif-copy-token').onclick = async () => {
+        const result = await api.copyNotificationToken()
+        notice(result?.ok ? '令牌已复制到剪贴板' : '复制失败')
+      })
+      $('notif-rotate-token') && ($('notif-rotate-token').onclick = async () => {
+        const result = await api.rotateNotificationToken()
+        if (!result?.ok) { notice('重置失败'); return }
+        notice('已重置令牌，旧令牌立即失效')
+        await refreshNotifications()
+      })
+      $('notif-open-win-settings') && ($('notif-open-win-settings').onclick = () => api.openExternal('ms-settings:notifications'))
+      $('notif-save').onclick = async () => {
+        const patch = {}
+        box.querySelectorAll('[data-key]').forEach(input => {
+          const key = input.dataset.key
+          patch[key] = input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value
+        })
+        // 放开到局域网是安全相关的显式变更：保存前确认一次，避免误改。
+        if (patch.localApiScope === 'lan' && scope !== 'lan') {
+          const confirmed = await confirmLanScope()
+          if (!confirmed) { if ($('notif-save-hint')) $('notif-save-hint').textContent = '已取消'; return }
+        }
+        const saved = await api.setPluginSettings(NOTIF_ID, patch).catch(() => null)
+        if (!saved?.ok) { $('notif-save-hint').textContent = '保存失败'; return }
+        $('notif-save-hint').textContent = '已保存 ✓'
+        setTimeout(() => { if ($('notif-save-hint')) $('notif-save-hint').textContent = '' }, 1600)
+        setTimeout(refreshNotifications, 400)
+      }
+    }
+
+    $('notif-open-history').onclick = () => api.openNotificationHistory()
+    /** 放开到局域网前的确认：明确说明影响面，而不是静默改监听地址。 */
+    function confirmLanScope() {
+      return new Promise(resolve => {
+        modalTitle.textContent = '允许局域网设备推送通知？'
+        modal.hidden = false
+        modalContent.innerHTML =
+          '<p class="note" style="margin:0 0 10px;line-height:1.8">开启后，接口会从「仅本机」改为监听所有网卡，' +
+          '<b style="color:var(--ink)">同一局域网内的任何设备</b>只要拿到访问令牌，就能向这台电脑推送通知。</p>' +
+          '<p class="note" style="margin:0 0 10px;line-height:1.8">令牌等同于钥匙，请只在可信网络中开启；用完建议改回「仅本机」并重置令牌。</p>' +
+          '<div class="modal-actions"><span class="hint"></span>' +
+          '<button class="ghost wide" id="lan-cancel" type="button">取消</button>' +
+          '<button class="primary" id="lan-confirm" type="button">我了解，开启局域网</button></div>'
+        const done = value => { modal.hidden = true; modalContent.innerHTML = ''; resolve(value) }
+        $('lan-confirm').onclick = () => done(true)
+        $('lan-cancel').onclick = () => done(false)
+      })
+    }    $('notif-clear').onclick = async () => {
+      const result = await api.clearNotificationsWithConfirm()
+      if (!result || result.action === 'cancel') return
+      notice(result.error ? result.error : result.clearedWindows ? '已清空（含 Windows 通知中心）' : '已清空应用内历史')
+      await refreshNotifications()
+    }
+
+    // ---------------- 说明页测试工具 ----------------
+    function testInput() {
+      return {
+        title: $('test-title').value.trim() || '测试通知',
+        body: $('test-body').value.trim(),
+        level: $('test-level').value,
+        target: ($('test-target')?.value || '').trim(),
+      }
+    }
+
+    /** 打开说明页时把目标地址预填成当前端点，省得用户自己拼。 */
+    async function initGuideTarget() {
+      const field = $('test-target')
+      if (!field || field.value.trim()) return
+      const snapshot = await api.notificationStatus().catch(() => null)
+      const endpoint = snapshot?.status?.endpoint || snapshot?.status?.endpoints?.[0] || ''
+      if (!endpoint) return
+      try {
+        const url = new URL(endpoint)
+        field.value = `${url.hostname}:${url.port || 80}`
+      } catch {
+        // 端点异常就不填，交给用户手输
+      }
+    }
+
+    function showTestResult(ok, text) {
+      const box = $('test-result')
+      if (!box) return
+      box.textContent = text
+      box.className = ok ? 'note ok' : 'note bad'
+    }
+
+    async function runTest(button, label, call) {
+      const original = button.textContent
+      button.disabled = true
+      button.textContent = '发送中…'
+      showTestResult(true, '')
+      try {
+        const result = await call()
+        if (result?.ok) showTestResult(true, `✓ ${label}成功${result.eventId ? '（' + String(result.eventId).slice(0, 8) + '…）' : ''}，看看岛上的提醒。`)
+        else showTestResult(false, `✗ ${label}失败：${result?.error ?? '未知原因'}`)
+      } catch (error) {
+        showTestResult(false, `✗ ${label}失败：${String(error?.message ?? error)}`)
+      } finally {
+        button.disabled = false
+        button.textContent = original
+      }
+    }
+
+    $('test-local').onclick = () => runTest($('test-local'), '端口发送', () => api.testLocalNotification(testInput()))
+    $('test-windows').onclick = () => runTest($('test-windows'), 'Windows 通知发送', () => api.testWindowsNotification(testInput()))
+    $('test-ingest').onclick = () => runTest($('test-ingest'), '管道注入', () => api.testIngestNotification(testInput()))
+
+    api.get().then(value => {
+      settings = { ...settings, ...value }
+      render()
+      const tab = new URLSearchParams(location.search).get('tab')
+      if (tab) document.querySelector(`[data-tab="${tab}"]`)?.click()
+    })
+    api.onChanged(value => {
+      settings = { ...settings, ...value }
+      render()
+      renderUpdateStatus(updateStatus)
+    })
+    api.onTab?.(tab => document.querySelector(`[data-tab="${tab}"]`)?.click())
+  </script>
+</body>
+</html>

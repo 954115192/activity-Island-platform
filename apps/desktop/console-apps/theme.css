@@ -1,0 +1,82 @@
+/* 灵动岛宿主视觉 token —— 唯一事实源。
+ *
+ * 岛壳（src/host/style.css）、控制台、工作台都从这里取色。
+ * 插件拿不到本文件，宿主通过主题注入把同一套值以 --island-* / theme 对象给出，
+ * 映射见 docs/plugin-requirements.md「宿主视觉 token」。
+ *
+ * 改色只改这一份；不要在任何界面里写新的 hex。
+ */
+:root {
+  /* 底 */
+  --island-bg: #000000;
+  --panel-bg: #0C0C0E;
+  --surface-1: #18181B;
+  --surface-2: #222226;
+  --stroke: #2E2E33;
+  --stroke-soft: #1F1F24;
+
+  /* 字 */
+  --ink: #F4F4F5;
+  --ink-muted: #A1A1AA;
+  --ink-faint: #71717A;
+
+  /* 语义 */
+  --accent: #3B82F6;
+  --accent-soft: #3B82F61F;
+  --accent-line: #3B82F655;
+  --success: #22C55E;
+  --warning: #F59E0B;
+  --danger: #EF4444;
+  --temp-glow: #60A5FA;
+
+  /* 语义色的"文本"变体：纯 --danger/#EF4444 落在深色面上约 4.0:1，10–12px 小字不够
+     DESIGN.md §4 的 4.5:1。需要彩色文字时用这三个，需要色块/圆点时用上面三个。 */
+  --success-ink: #4ADE80;
+  --warning-ink: #FCD34D;
+  --danger-ink: #FCA5A5;
+
+  /* 语义色的浅底与描边，对应 --accent-soft / --accent-line 的兄弟 */
+  --success-soft: rgba(34,197,94,.14);
+  --success-line: rgba(34,197,94,.42);
+  --warning-soft: rgba(245,158,11,.12);
+  --warning-line: rgba(245,158,11,.40);
+  --danger-soft: rgba(239,68,68,.13);
+  --danger-line: rgba(239,68,68,.38);
+
+  /* 圆角阶梯（签名几何） */
+  --r-pill: 999px;
+  --r-lg: 28px;
+  --r-md: 24px;
+  --r-panel: 20px;
+  --r-card: 12px;
+  --r-ctl: 8px;
+
+  /* 字体 */
+  --font: "Segoe UI Variable", "Segoe UI", "MiSans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", "MiSans", "PingFang SC", system-ui, sans-serif;
+  --mono: "Cascadia Code", "SF Mono", Consolas, monospace;
+
+  /* 弹窗遮罩：三个界面共用同一个压暗程度，不再各自 rgba */
+  --scrim: rgba(0,0,0,.55);
+
+  /* 可访问性：统一焦点环 */
+  --focus-ring: 2px solid var(--accent);
+  --focus-offset: 2px;
+}
+
+/* 焦点可见性：全站同一套环，不用 outline:none 抹掉 */
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+/* 临时消息脉冲（≤3Hz）在减动效下退化为静态描边，见 [data-alert] */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

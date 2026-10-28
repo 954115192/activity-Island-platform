@@ -1,0 +1,54 @@
+{
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "description": "__NAME__：在岛上显示内容",
+  "runtime": "web-app",
+  "priority": 50,
+  "resident": true,
+  "entry": "dist/index.html",
+  "small": {
+    "enabled": true,
+    "width": 108,
+    "height": 40
+  },
+  "medium": {
+    "width": 420,
+    "height": 200
+  },
+  "large": {
+    "width": 640,
+    "height": 340
+  },
+  "settings": {
+    "fields": [
+      {
+        "key": "greeting",
+        "label": "显示文案",
+        "type": "text",
+        "default": "你好",
+        "placeholder": "例如 早安"
+      },
+      {
+        "key": "interval",
+        "label": "刷新间隔（秒）",
+        "type": "number",
+        "default": 1,
+        "min": 1,
+        "max": 60
+      },
+      {
+        "key": "showSeconds",
+        "label": "显示秒",
+        "type": "boolean",
+        "default": false
+      },
+      {
+        "key": "accent",
+        "label": "强调色",
+        "type": "color",
+        "default": "#3B82F6"
+      }
+    ]
+  }
+}

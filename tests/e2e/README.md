@@ -1,3 +1,3 @@
-# End-to-end tests
+# 端到端测试
 
-User-journey tests for notification, pairing, transfer, reconnect, and revocation flows.
+验证通知、配对、传输、重连和授权撤销等完整用户流程。

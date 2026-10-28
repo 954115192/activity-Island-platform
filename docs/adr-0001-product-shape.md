@@ -1,46 +1,52 @@
-# ADR-0001: Product shape and ownership boundaries
+# 架构决策 0001：产品形态与职责边界
 
-## Status
+## 状态
 
-Accepted
+已采纳。
 
-## Decision
+## 决策
 
-Activity Island Platform is a layered cross-device product. The desktop shell presents state and short actions. Platform services own shared infrastructure. Official modules provide default user experiences. Extensions provide personal integrations. The workbench handles dense tasks.
+Activity Island Platform 采用分层的跨设备产品架构：
 
-## Why
+- 桌面壳层呈现状态并承接简短操作。
+- 平台服务管理共享基础设施。
+- 官方模块提供默认用户体验。
+- 扩展提供个性化服务接入。
+- 工作台处理复杂任务。
 
-Notification ingestion, device trust, connection lifecycle, permissions, and reliable file transfer are shared responsibilities. Giving each feature or extension its own implementation would duplicate state, weaken security boundaries, and make recovery inconsistent.
+## 原因
 
-The island is valuable because it is a presentation and interruption surface. It should not become the owner of every source adapter or protocol.
+通知接入、设备信任、连接生命周期、权限和可靠文件传输都是公共职责。如果每个功能或扩展分别实现，就会造成状态重复、权限边界削弱和恢复行为不一致。
 
-## Consequences
+灵动岛的核心价值是呈现信息和管理打断。来源适配与协议实现应放在平台服务中。
 
-Positive:
+## 影响
 
-- Core experiences work without installing extensions.
-- Device and transfer state has one owner.
-- Permissions can be reviewed and revoked consistently.
-- Extensions can add value without reimplementing infrastructure.
-- Services can be tested with fakes and restarted independently.
+### 收益
 
-Trade-offs:
+- 核心体验无需安装扩展即可使用。
+- 设备与传输状态有唯一负责方。
+- 权限可以统一查看和撤销。
+- 扩展可以复用基础设施。
+- 服务可以通过模拟实现测试，并独立重启。
 
-- Platform contracts require more design before UI work.
-- Official modules and extensions need distinct lifecycle and permission rules.
-- Some operating-system capabilities will remain platform-specific.
+### 代价
 
-## Rejected alternatives
+- 在界面开发前，需要投入更多时间设计平台契约。
+- 官方模块和扩展需要不同的生命周期与权限规则。
+- 部分操作系统能力仍需按平台分别处理。
 
-### One large application with feature code in the shell
+## 未采用的方案
 
-Rejected because the shell would accumulate OS integration, connection state, storage, and product UI in one failure domain.
+### 将所有功能代码放入壳层
 
-### Every feature implemented as an extension
+壳层会同时承载操作系统集成、连接状态、存储和业务界面，导致故障影响范围过大，因此不采用。
 
-Rejected because shared device, notification, and transfer infrastructure would be duplicated and permissions would be difficult to reason about.
+### 将每项功能都实现为扩展
 
-### A backend-first cloud product
+设备、通知和传输基础设施会重复实现，权限也难以清晰管理，因此不采用。
 
-Rejected for the initial product because the primary value is local, low-latency desktop and phone interaction. A relay can be evaluated later as an explicit capability.
+### 优先建设云端后台
+
+初期产品的主要价值是本地、低延迟的电脑与手机交互，因此不优先建设云端后台。公网中继可以在后续作为独立能力评估。
 

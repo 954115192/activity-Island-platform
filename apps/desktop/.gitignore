@@ -1,0 +1,22 @@
+# 依赖与构建产物（只忽略仓库根目录下的构建输出）
+/node_modules/
+/dist/
+/dist-electron/
+/release/
+
+# 本机工具目录
+.idea/
+.zcode/
+
+# 杂项（与项目源码无关的个人文件）
+/activity-island-promo/
+/autocad_data.db
+/灵动岛.zip
+*.log
+.DS_Store
+Thumbs.db
+
+# C# 监听器构建产物（用 npm run build:listener 生成）
+/resources/notifications/notify-listener.exe
+tools/notify-listener/bin/
+tools/notify-listener/obj/

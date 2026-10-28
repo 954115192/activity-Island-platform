@@ -1,0 +1,169 @@
+{
+  "id": "system-notifications",
+  "name": "系统通知",
+  "version": "1.0.0",
+  "description": "接管 Windows 通知中心，并提供本地触发接口",
+  "icon": "🔔",
+  "runtime": "web-app",
+  "priority": 60,
+  "resident": false,
+  "entry": "index.html",
+  "small": {
+    "enabled": true,
+    "width": 210,
+    "height": 40
+  },
+  "medium": {
+    "width": 420,
+    "height": 300,
+    "minWidth": 320,
+    "minHeight": 220
+  },
+  "settings": {
+    "fields": [
+      {
+        "key": "alertEnabled",
+        "label": "弹出岛上提醒",
+        "type": "boolean",
+        "description": "关闭后通知只记录到历史，不打断当前操作",
+        "default": true
+      },
+      {
+        "key": "windowsEnabled",
+        "label": "接管 Windows 通知",
+        "type": "boolean",
+        "description": "读取通知中心的新通知；首次使用需在系统设置中允许访问通知",
+        "default": true
+      },
+      {
+        "key": "localApiEnabled",
+        "label": "启用本地触发接口",
+        "type": "boolean",
+        "description": "允许程序向 HTTP 接口 POST 通知",
+        "default": true
+      },
+      {
+        "key": "localApiScope",
+        "label": "可访问范围",
+        "type": "select",
+        "description": "仅本机最安全；局域网允许同网段设备推送，需妥善保管令牌",
+        "default": "local",
+        "options": [
+          { "value": "local", "label": "仅本机（127.0.0.1）" },
+          { "value": "lan", "label": "局域网内所有设备" }
+        ]
+      },
+      {
+        "key": "localApiPort",
+        "label": "本地接口端口",
+        "type": "number",
+        "description": "修改后立即重建监听",
+        "default": 5720,
+        "min": 1024,
+        "max": 65535
+      },
+      {
+        "key": "allowApps",
+        "label": "只提醒这些应用",
+        "type": "text",
+        "description": "按应用名模糊匹配，留空=全部",
+        "placeholder": "例如：微信, Outlook",
+        "default": ""
+      },
+      {
+        "key": "ignoreApps",
+        "label": "忽略这些应用",
+        "type": "text",
+        "description": "优先于白名单；被忽略的通知只记录不提醒",
+        "placeholder": "例如：小组件, ShellExperienceHost",
+        "default": ""
+      },
+      {
+        "key": "quietEnabled",
+        "label": "启用免打扰时段",
+        "type": "boolean",
+        "default": false
+      },
+      {
+        "key": "quietStart",
+        "label": "免打扰开始",
+        "type": "text",
+        "placeholder": "HH:MM",
+        "default": "23:00"
+      },
+      {
+        "key": "quietEnd",
+        "label": "免打扰结束",
+        "type": "text",
+        "placeholder": "HH:MM",
+        "default": "07:00"
+      },
+      {
+        "key": "ttlInfo",
+        "label": "停留时长 · 普通（秒）",
+        "type": "number",
+        "description": "普通级别提醒在岛上的停留时间",
+        "default": 8,
+        "min": 3,
+        "max": 120
+      },
+      {
+        "key": "ttlWarn",
+        "label": "停留时长 · 警告（秒）",
+        "type": "number",
+        "description": "警告级别提醒的停留时间",
+        "default": 10,
+        "min": 3,
+        "max": 120
+      },
+      {
+        "key": "ttlCritical",
+        "label": "停留时长 · 严重（秒）",
+        "type": "number",
+        "description": "严重级别提醒的停留时间",
+        "default": 15,
+        "min": 3,
+        "max": 120
+      }
+    ]
+  },
+  "guide": {
+    "summary": "接管 Windows 通知中心的通知，并开放一个本机端口给脚本推送通知；小岛预览、中岛看详情，历史在托盘菜单里集中管理。",
+    "requires": [
+      "允许应用访问你的通知（Windows 设置 → 隐私和安全性 → 通知）",
+      "本功能为软件内置，无需安装插件"
+    ],
+    "setupRequired": true,
+    "steps": [
+      {
+        "title": "打开通知访问权限",
+        "text": "如果中岛显示「未授权」，到系统设置里开启「允许应用访问你的通知」。授权后几秒内自动生效。",
+        "links": []
+      },
+      {
+        "title": "用脚本推送通知",
+        "text": "向 127.0.0.1 的本地接口 POST 一条 JSON 即可上岛，令牌在中岛或「通知历史」窗口里复制。",
+        "code": {
+          "language": "bash",
+          "value": "curl -X POST http://127.0.0.1:5720/api/v1/notifications \\\n  -H \"Authorization: Bearer <令牌>\" -H \"Content-Type: application/json\" \\\n  -d '{\"title\":\"构建完成\",\"content\":\"用时 42 秒\"}'"
+        }
+      }
+    ],
+    "troubleshooting": [
+      {
+        "problem": "岛上一直没有任何通知",
+        "text": "先确认 Windows 的通知访问已允许；再检查本地接口端口是否被占用。"
+      },
+      {
+        "problem": "某条通知只有应用名，没有标题正文",
+        "text": "Windows 通知中心本身可能只提供应用名；只能读取系统给出的文本。"
+      }
+    ],
+    "links": [
+      {
+        "label": "打开 Windows 通知设置",
+        "url": "ms-settings:notifications"
+      }
+    ]
+  }
+}

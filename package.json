@@ -2,17 +2,23 @@
   "name": "activity-island-platform",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "A cross-device information and action platform centered on a lightweight desktop island.",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace @activity-island/desktop",
+    "dev": "npm run dev --workspace dynamic-island-host",
     "build": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "typecheck": "tsc -p packages/platform-contracts && tsc -p packages/platform-services && tsc -p tests",
+    "test": "node --test --experimental-strip-types \"tests/**/*.test.ts\"",
+    "demo": "node --experimental-strip-types tools/notification-demo.ts",
     "lint": "npm run lint --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
   },
   "engines": {
     "node": ">=22"

@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>灵动岛 · 首发插件设计</title>
+<style>
+  :root {
+    --island-bg: #000000;
+    --panel-bg: #0C0C0E;
+    --surface-1: #18181B;
+    --surface-2: #222226;
+    --stroke: #2E2E33;
+    --stroke-soft: #1F1F24;
+    --ink: #F4F4F5;
+    --ink-muted: #A1A1AA;
+    --ink-faint: #71717A;
+    --accent: #3B82F6;
+    --accent-soft: #3B82F61F;
+    --success: #22C55E;
+    --warning: #F59E0B;
+    --danger: #EF4444;
+    --temp-glow: #60A5FA;
+    --r-pill: 999px;
+    --r-lg: 28px;
+    --r-md: 24px;
+    --r-panel: 20px;
+    --r-card: 12px;
+    --r-ctl: 8px;
+    --font: "Segoe UI", "MiSans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    --mono: "Cascadia Code", "SF Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: #07080A;
+    color: var(--ink);
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .bg-desk {
+    position: fixed; inset: 0; z-index: 0;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #1a2740 0%, transparent 55%),
+      linear-gradient(180deg, #0a1220 0%, #07080A 40%, #0A0C10 100%);
+  }
+  .bg-desk::after {
+    content: "";
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: linear-gradient(180deg, rgba(0,0,0,0.5), transparent 70%);
+  }
+  .wrap { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 40px 24px 96px; }
+  header.site { margin-bottom: 48px; }
+  .eyebrow { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; margin-bottom: 12px; }
+  h1 { font-size: 36px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 12px; }
+  .lede { color: var(--ink-muted); max-width: 680px; font-size: 15px; }
+  .note {
+    margin-top: 16px; padding: 12px 14px;
+    border: 1px solid var(--stroke); border-radius: var(--r-card);
+    background: var(--surface-1); color: var(--ink-muted);
+    font-size: 13px; max-width: 760px;
+  }
+  .note strong { color: var(--ink); }
+  section { margin-top: 56px; }
+  .sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+  h2 { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+  .sec-desc { color: var(--ink-muted); font-size: 13px; max-width: 560px; }
+
+  .stage {
+    background: var(--panel-bg);
+    border: 1px solid var(--stroke);
+    border-radius: 16px;
+    padding: 28px 20px 24px;
+    position: relative;
+    margin-bottom: 16px;
+  }
+  .stage-label { position: absolute; top: 12px; left: 16px; font-size: 11px; color: var(--ink-faint); font-family: var(--mono); }
+  .caption { margin-top: 14px; color: var(--ink-faint); font-size: 12px; text-align: center; }
+
+  /* 插件概览卡 */
+  .plugin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .plugin-card { background: var(--surface-1); border: 1px solid var(--stroke); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .plugin-card h3 { font-size: 14px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+  .plugin-card .id { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+  .plugin-card p { font-size: 12px; color: var(--ink-muted); flex: 1; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag { font-size: 11px; padding: 3px 8px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--ink-muted); border: 1px solid var(--stroke); }
+  .tag.accent { color: #93c5fd; border-color: #3B82F644; background: var(--accent-soft); }
+
+  /* 小岛 mock */
+  .island-small {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: var(--island-bg);
+    border-radius: var(--r-pill);
+    padding: 10px 16px;
+    min-height: 44px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+  }
+  .island-small.temp { box-shadow: 0 0 0 1px var(--temp-glow), 0 0 28px rgba(59,130,246,0.35), 0 8px 32px rgba(0,0,0,0.45); }
+  .island-small.temp-warn { box-shadow: 0 0 0 1px var(--warning), 0 0 24px rgba(245,158,11,0.35), 0 8px 32px rgba(0,0,0,0.45); }
+  .island-small.temp-crit { box-shadow: 0 0 0 1px var(--danger), 0 0 24px rgba(239,68,68,0.38), 0 8px 32px rgba(0,0,0,0.45); }
+  .slot { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink); white-space: nowrap; }
+  .slot .muted { color: var(--ink-muted); }
+  .slot .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  .dot.ok { background: var(--success); }
+  .dot.warn { background: var(--warning); }
+  .dot.err { background: var(--danger); }
+
+  /* mock 布局：常态 | 通知态 并排 */
+  .layout2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 800px) { .layout2 { grid-template-columns: 1fr; } }
+  .mock-cell { background: var(--surface-1); border: 1px solid var(--stroke-soft); border-radius: var(--r-card); padding: 22px 16px 14px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .mock-label { font-size: 11px; color: var(--ink-faint); font-family: var(--mono); }
+
+  /* 中岛 mock */
+  .island-medium { width: min(400px, 100%); background: var(--island-bg); border-radius: var(--r-md); padding: 14px 14px 12px; box-shadow: 0 16px 48px rgba(0,0,0,0.5); }
+  .im-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 8px; }
+  .im-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+  .im-actions { display: flex; gap: 6px; }
+  .btn { border: none; cursor: pointer; font-family: inherit; background: var(--surface-2); color: var(--ink); font-size: 12px; padding: 6px 10px; border-radius: var(--r-ctl); }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.ghost { background: transparent; border: 1px solid var(--stroke); color: var(--ink-muted); }
+  .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .metrics.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .metric { background: var(--surface-1); border-radius: var(--r-card); padding: 16px 14px; min-height: 88px; }
+  .metric .label { font-size: 12px; color: var(--ink-muted); margin-bottom: 8px; }
+  .metric .value { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .metric .sub { margin-top: 6px; font-size: 11px; color: var(--ink-faint); }
+  .im-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 12px; }
+  .im-foot .status { color: var(--accent); font-weight: 500; }
+  .im-foot .meta { color: var(--ink-muted); font-family: var(--mono); font-size: 11px; }
+  .rows { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: var(--surface-1); border-radius: var(--r-ctl); padding: 8px 10px; font-size: 12px; }
+  .row .r-name { color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .r-sub { color: var(--ink-faint); font-size: 11px; }
+  .row .r-side { color: var(--ink-muted); font-variant-numeric: tabular-nums; white-space: nowrap; font-family: var(--mono); font-size: 11px; }
+  .row .r-side.ok { color: var(--success); }
+  .row .r-side.err { color: var(--danger); }
+  .bar { height: 6px; background: var(--surface-2); border-radius: var(--r-pill); overflow: hidden; margin-top: 10px; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: var(--r-pill); }
+
+  /* 通知规则表 */
+  table.rules { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 14px; }
+  .rules th { text-align: left; color: var(--ink-muted); font-weight: 500; font-size: 11px; padding: 8px 10px; border-bottom: 1px solid var(--stroke); }
+  .rules td { padding: 8px 10px; border-bottom: 1px solid var(--stroke-soft); vertical-align: top; }
+  .rules tr:last-child td { border-bottom: 0; }
+  .rules td.cond { color: var(--ink-muted); width: 34%; }
+  .rules td.copy { font-family: var(--mono); font-size: 12px; }
+  .lv { display: inline-block; font-size: 11px; padding: 2px 9px; border-radius: var(--r-pill); white-space: nowrap; }
+  .lv.info { color: #93c5fd; background: var(--accent-soft); border: 1px solid #3B82F644; }
+  .lv.warn { color: #FCD34D; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.4); }
+  .lv.crit { color: #FCA5A5; background: rgba(239,68,68,0.13); border: 1px solid rgba(239,68,68,0.38); }
+  .pain { color: var(--ink-muted); font-size: 13px; max-width: 680px; margin: 8px 0 16px; }
+  .pain strong { color: var(--ink); }
+  .meta-line { margin-top: 12px; font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+  .meta-line b { color: var(--ink-muted); font-weight: 600; }
+
+  /* 语义区 */
+  .level-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  @media (max-width: 800px) { .level-grid { grid-template-columns: 1fr; } }
+  .level-card { background: var(--surface-1); border: 1px solid var(--stroke); border-radius: var(--r-card); padding: 16px; }
+  .level-card h3 { font-size: 13px; font-weight: 650; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .level-card p { font-size: 12px; color: var(--ink-muted); }
+  .level-card .mono { margin-top: 8px; font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+  .behavior { margin-top: 14px; display: grid; gap: 8px; }
+  .behavior li { list-style: none; font-size: 13px; color: var(--ink-muted); padding-left: 18px; position: relative; }
+  .behavior li::before { content: "·"; position: absolute; left: 4px; color: var(--accent); }
+  .behavior li strong { color: var(--ink); font-weight: 600; }
+
+  footer.site { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--stroke); color: var(--ink-faint); font-size: 12px; }
+  footer.site code { font-family: var(--mono); color: var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="bg-desk" aria-hidden="true"></div>
+<div class="wrap">
+  <header class="site">
+    <div class="eyebrow">Activity Island · Plugin Showcase</div>
+    <h1>首发插件</h1>
+    <p class="lede">
+      六个插件，每个都过同一组筛子：<strong style="color:var(--ink)">事件每天都发生、错过通知有真实代价、数据本机可得零配置</strong>。
+      其中五个带覆盖式通知——这是灵动岛存在的理由：你不需要盯着屏幕，岛替你盯，出事才说话。
+    </p>
+    <div class="note">
+      <strong>可落地性：</strong>所有数据源在当前「可信插件」阶段即可实现（WMI / 文件系统 / 进程 / 已验证的公开接口），
+      不依赖未来的权限模型；通知行为（三档、ttl、队列、同 key 覆盖）与宿主已实现的一致
+      （见 <code style="font-family:var(--mono)">docs/plugin-contract.md</code> §5）。
+    </div>
+  </header>
+
+  <!-- OVERVIEW -->
+  <section id="overview">
+    <div class="sec-head">
+      <h2>总览</h2>
+      <p class="sec-desc">按「日常痛感」排序。五个带通知，一个纯驻留倒计时；合起来覆盖岛的全部形态。</p>
+    </div>
+    <div class="plugin-grid">
+      <article class="plugin-card">
+        <h3><span class="dot"></span>任务完成哨兵</h3>
+        <div class="id">task-done</div>
+        <p>构建 / 训练 / 复制跑完或失败立刻上岛。失败是红色，必须看——避免「早就失败了还在干等」。</p>
+        <div class="tags"><span class="tag accent">通知 ×3</span><span class="tag">驻留</span><span class="tag">中岛</span></div>
+      </article>
+      <article class="plugin-card">
+        <h3><span class="dot warn"></span>AI 余额哨兵</h3>
+        <div class="id">ds-balance</div>
+        <p>API 余额随用随扣，用挂了才知道没钱。低于阈值琥珀提醒，令牌失效红色。工作台同款接口。</p>
+        <div class="tags"><span class="tag accent">通知 ×3</span><span class="tag">驻留</span><span class="tag">中岛</span></div>
+      </article>
+      <article class="plugin-card">
+        <h3><span class="dot warn"></span>电量哨兵</h3>
+        <div class="id">battery-guard</div>
+        <p>没电永远在最要命的瞬间。低电量分级提醒，充到 80% 提醒拔电源。WMI 零配置。</p>
+        <div class="tags"><span class="tag accent">通知 ×3</span><span class="tag">驻留</span><span class="tag">中岛</span></div>
+      </article>
+      <article class="plugin-card">
+        <h3><span class="dot ok"></span>下载雷达</h3>
+        <div class="id">dl-radar</div>
+        <p>浏览器「下载完成」只在浏览器里，你早切窗口了。下完岛直接说一声，卡住也会说。</p>
+        <div class="tags"><span class="tag accent">通知 ×2</span><span class="tag">按需出现</span><span class="tag">中岛</span></div>
+      </article>
+      <article class="plugin-card">
+        <h3><span class="dot warn"></span>系统脉搏</h3>
+        <div class="id">sys-pulse</div>
+        <p>风扇狂转、卡到打不开文件，不知道是谁干的。持续过载琥珀提醒，中岛列出 Top 3 进程。</p>
+        <div class="tags"><span class="tag accent">通知 ×3</span><span class="tag">驻留</span><span class="tag">中岛</span></div>
+      </article>
+      <article class="plugin-card">
+        <h3><span class="dot ok"></span>专注番茄</h3>
+        <div class="id">focus-flow</div>
+        <p>倒计时驻留小岛，余光可见；结束轻提醒。计时器不再多开一个窗口——窗口本身就是打断。</p>
+        <div class="tags"><span class="tag accent">通知 ×2</span><span class="tag">驻留</span><span class="tag">中岛</span></div>
+      </article>
+    </div>
+  </section>
+
+  <!-- 01 task-done -->
+  <section id="task-done">
+    <div class="sec-head">
+      <h2>01 · 任务完成哨兵</h2>
+      <p class="sec-desc">最普适的一个：任何「跑一会儿才完」的事都适用，不只开发。</p>
+    </div>
+    <div class="stage">
+      <div class="stage-label">task-done</div>
+      <p class="pain">
+        构建、模型训练、大文件复制、npm install……你切去干别的，只能一遍遍切回来看完没完。
+        <strong>更糟的是失败</strong>：10 分钟前就退出了，你还在等它「跑完」。
+      </p>
+      <div class="layout2">
+        <div class="mock-cell">
+          <div class="mock-label">常态 · 驻留计时</div>
+          <div class="island-small" role="img" aria-label="任务进行中">
+            <div class="slot"><span class="dot"></span><span class="muted">build-web</span><span class="val">03:12</span></div>
+          </div>
+        </div>
+        <div class="mock-cell">
+          <div class="mock-label">通知态 · 完成 / 失败</div>
+          <div style="display:flex; flex-direction:column; gap:12px; align-items:center;">
+            <div class="island-small temp" role="img" aria-label="任务完成通知">
+              <div class="slot"><span class="dot ok"></span><span class="val">✓ build-web 完成 · 4分32秒</span></div>
+            </div>
+            <div class="island-small temp-crit" role="img" aria-label="任务失败通知">
+              <div class="slot"><span class="dot err"></span><span class="val" style="color:var(--danger)">✗ build-web 失败 · 退出码 1</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <table class="rules">
+        <tr><th>触发条件</th><th>级别</th><th>通知文案</th><th>停留</th></tr>
+        <tr><td class="cond">垫片执行的命令退出码 0</td><td><span class="lv info">info</span></td><td class="copy">✓ build-web 完成 · 4分32秒</td><td>8s</td></tr>
+        <tr><td class="cond">退出码 ≠ 0</td><td><span class="lv crit">critical</span></td><td class="copy">✗ build-web 失败 · 退出码 1</td><td>12s</td></tr>
+        <tr><td class="cond">监视的进程结束（无退出码）</td><td><span class="lv info">info</span></td><td class="copy">python.exe 已结束</td><td>6s</td></tr>
+      </table>
+      <p class="meta-line"><b>入口</b> island-wait &lt;命令&gt; 垫片（拿得到退出码）· 或后台脚本 Get-Process 监视指定进程　<b>设置</b> 任务命名 / 监视进程列表 / 「只在失败时提醒」</p>
+      <p class="caption">两个入口：跑命令用垫片（结果准确）；别人的进程用监视（不知道成败，只说「已结束」）。</p>
+    </div>
+  </section>
+
+  <!-- 02 ds-balance -->
+  <section id="ds-balance">
+    <div class="sec-head">
+      <h2>02 · AI 余额哨兵</h2>
+      <p class="sec-desc">与工作台「DeepSeek 用量」面板同一接口：工作台看全景，岛上收提醒。</p>
+    </div>
+    <div class="stage">
+      <div class="stage-label">ds-balance</div>
+      <p class="pain">
+        API 余额随用随扣，<strong>用挂了才知道没钱</strong>——一次跑批失败浪费的不只是钱，是排队的数据和你的时间。
+        充值是低频操作，人不会记得去看。
+      </p>
+      <div class="layout2">
+        <div class="mock-cell">
+          <div class="mock-label">常态 · 驻留</div>
+          <div class="island-small" role="img" aria-label="余额驻留">
+            <div class="slot"><span class="dot ok"></span><span class="muted">余额</span><span class="val">¥2.56</span></div>
+          </div>
+        </div>
+        <div class="mock-cell">
+          <div class="mock-label">通知态 · 偏低 / 失效</div>
+          <div style="display:flex; flex-direction:column; gap:12px; align-items:center;">
+            <div class="island-small temp-warn" role="img" aria-label="余额偏低">
+              <div class="slot"><span class="dot warn"></span><span class="muted">DeepSeek</span><span class="val" style="color:var(--warning)">余额偏低 ¥1.20</span></div>
+            </div>
+            <div class="island-small temp-crit" role="img" aria-label="令牌失效">
+              <div class="slot"><span class="dot err"></span><span class="val" style="color:var(--danger)">DeepSeek 令牌失效，去设置更新</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="layout2" style="margin-top:14px">
+        <div class="mock-cell">
+          <div class="mock-label">中岛 · 双指标（对齐现有截图）</div>
+          <div class="island-medium" role="img" aria-label="DeepSeek 余额详情">
+            <div class="im-head">
+              <div class="im-title"><span class="dot ok"></span>DeepSeek 余额</div>
+              <div class="im-actions"><button type="button" class="btn">刷新</button><button type="button" class="btn ghost">收起</button></div>
+            </div>
+            <div class="metrics">
+              <div class="metric"><div class="label">余额</div><div class="value">¥2.56</div></div>
+              <div class="metric"><div class="label">累计消费</div><div class="value">¥157.44</div></div>
+            </div>
+            <div class="im-foot"><span class="status">正常</span><span class="meta">更新 23:41:05 · 下次 03:51</span></div>
+          </div>
+        </div>
+        <div class="mock-cell">
+          <div class="mock-label">通知规则</div>
+          <table class="rules" style="margin-top:0">
+            <tr><th>触发条件</th><th>级别</th><th>文案</th></tr>
+            <tr><td class="cond">余额 &lt; 阈值（默认 ¥5）</td><td><span class="lv warn">warn</span></td><td class="copy">余额偏低 {金额}</td></tr>
+            <tr><td class="cond">令牌失效 / 连续 3 次请求失败</td><td><span class="lv crit">critical</span></td><td class="copy">令牌失效，去设置更新</td></tr>
+            <tr><td class="cond">充值后回到阈值上</td><td><span class="lv info">info</span></td><td class="copy">余额已恢复 {金额}</td></tr>
+          </table>
+        </div>
+      </div>
+      <p class="meta-line"><b>数据</b> GET api.deepseek.com/user/balance（Bearer 令牌只存本机，工作台面板同款）　<b>设置</b> 令牌 / 阈值 / 检测间隔（默认 5 分钟）</p>
+    </div>
+  </section>
+
+  <!-- 03 battery-guard -->
+  <section id="battery-guard">
+    <div class="sec-head">
+      <h2>03 · 电量哨兵</h2>
+      <p class="sec-desc">笔记本 + 蓝牙设备用户的刚需；WMI 读取，零配置装上就能用。</p>
+    </div>
+    <div class="stage">
+      <div class="stage-label">battery-guard</div>
+      <p class="pain">
+        没电永远发生在<strong>最要命的瞬间</strong>：演示到一半、导出到一半。反过来，一直插着电源也伤电池——
+        但没人记得「该拔了」。
+      </p>
+      <div class="layout2">
+        <div class="mock-cell">
+          <div class="mock-label">常态 · 放电 / 充电中</div>
+          <div style="display:flex; flex-direction:column; gap:12px; align-items:center;">
+            <div class="island-small" role="img" aria-label="放电中">
+              <div class="slot"><span class="dot ok"></span><span class="muted">电量</span><span class="val">78%</span><span class="muted">· 还剩 3小时40分</span></div>
+            </div>
+            <div class="island-small" role="img" aria-label="充电中">
+              <div class="slot"><span class="dot"></span><span class="muted">⚡ 充电中</span><span class="val">46%</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="mock-cell">
+          <div class="mock-label">通知态 · 分级</div>
+          <div style="display:flex; flex-direction:column; gap:12px; align-items:center;">
+            <div class="island-small temp-warn" role="img" aria-label="低电量">
+              <div class="slot"><span class="dot warn"></span><span class="val" style="color:var(--warning)">电量 18% · 还剩 25 分钟</span></div>
+            </div>
+            <div class="island-small temp-crit" role="img" aria-label="电量临界">
+              <div class="slot"><span class="dot err"></span><span class="val" style="color:var(--danger)">电量 9% · 请接通电源</span></div>
+            </div>
+            <div class="island-small temp" role="img" aria-label="充满提醒">
+              <div class="slot"><span class="dot"></span><span class="val">已充 80% · 可以拔掉充电器</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <table class="rules">
+        <tr><th>触发条件</th><th>级别</th><th>通知文案</th><th>停留</th></tr>
+        <tr><td class="cond">放电中 ≤ 阈值（默认 20%）</td><td><span class="lv warn">warn</span></td><td class="copy">电量 {n}% · 还剩 {时间}</td><td>6s</td></tr>
+        <tr><td class="cond">放电中 ≤ 10%</td><td><span class="lv crit">critical</span></td><td class="copy">电量 {n}% · 请接通电源</td><td>10s</td></tr>
+        <tr><td class="cond">充电达 80%（可关）</td><td><span class="lv info">info</span></td><td class="copy">已充 80% · 可以拔掉充电器</td><td>5s</td></tr>
+      </table>
+      <p class="meta-line"><b>数据</b> PowerShell WMI（Win32_Battery），每 60s 一查，接通电源后免打扰　<b>设置</b> 低电量阈值（默认 20%）/ 10% 强提醒 / 满电提醒（默认开）</p>
+      <p class="caption">同一档事件不重复叫：提醒过 18% 就静默，除非电量又降了 5 个点或插上了电源。</p>
+    </div>
+  </section>
+
+  <!-- 04 dl-radar -->
+  <section id="dl-radar">
+    <div class="sec-head">
+      <h2>04 · 下载雷达</h2>
+      <p class="sec-desc">按需出现的代表：平时不占槽，有下载才上岛，下完说一声就走。</p>
+    </div>
+    <div class="stage">
+      <div class="stage-label">dl-radar</div>
+      <p class="pain">
+        浏览器「下载完成」的提示<strong>只在浏览器里</strong>——你早切到别的窗口了。
+        下没下完全靠猜，猜错了再切回去看一眼，一天几十次。
+      </p>
+      <div class="layout2">
+        <div class="mock-cell">
+          <div class="mock-label">常态 · 仅下载时出现</div>
+          <div class="island-small" role="img" aria-label="下载进行中">
+            <div class="slot"><span class="muted">⬇</span><span class="val">2.4</span><span class="muted">MB/s</span><span class="slot-sep" style="width:1px;height:14px;background:var(--stroke)"></span><span class="val">42%</span></div>
+          </div>
+        </div>
+        <div class="mock-cell">
+          <div class="mock-label">通知态 · 完成 / 卡住</div>
+          <div style="display:flex; flex-direction:column; gap:12px; align-items:center;">
+            <div class="island-small temp" role="img" aria-label="下载完成">
+              <div class="slot"><span class="dot ok"></span><span class="val">✓ ubuntu-24.04.iso 已下载 · 5.8 GB</span></div>
+            </div>
+            <div class="island-small temp-warn" role="img" aria-label="下载卡住">
+              <div class="slot"><span class="dot warn"></span><span class="val" style="color:var(--warning)">下载卡住了 · 99% 停了 10 分钟</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="layout2" style="margin-top:14px">
+        <div class="mock-cell">
+          <div class="mock-label">中岛 · 当前任务 + 今日完成</div>
+          <div class="island-medium" role="img" aria-label="下载详情">
+            <div class="im-head">
+              <div class="im-title"><span class="dot"></span>下载雷达</div>
+              <div class="im-actions"><button type="button" class="btn ghost">收起</button></div>
+            </div>
+            <div class="rows" style="margin-top:0">
+              <div class="row">
+                <div><div class="r-name">ubuntu-24.04.iso</div><div class="r-sub">2.4 MB/s · 剩余约 3 分钟</div></div>
+                <div class="r-side">42%</div>
+              </div>
+              <div class="bar"><i style="width:42%"></i></div>
+              <div class="row"><div class="r-name">vscode-setup.exe</div><div class="r-side ok">✓ 94 MB</div></div>
+              <div class="row"><div class="r-name">模型权重 part-3</div><div class="r-side ok">✓ 2.1 GB</div></div>
+            </div>
+            <div class="im-foot"><span class="status">下载中 1 个</span><span class="meta">今日完成 2 个</span></div>
+          </div>
+        </div>
+        <div class="mock-cell">
+          <div class="mock-label">通知规则</div>
+          <table class="rules" style="margin-top:0">
+            <tr><th>触发条件</th><th>级别</th><th>文案</th></tr>
+            <tr><td class="cond">临时文件消失 → 下载完成</td><td><span class="lv info">info</span></td><td class="copy">✓ {文件名} 已下载 · {大小}</td></tr>
+            <tr><td class="cond">进度 10 分钟无变化</td><td><span class="lv warn">warn</span></td><td class="copy">下载疑似卡住 {文件名}</td></tr>
+          </table>
+        </div>
+      </div>
+      <p class="meta-line"><b>数据</b> 监视下载目录（默认 Downloads）的 .crdownload / .part 文件与大小变化，纯文件系统　<b>设置</b> 监视目录 / 完成提醒开关 / 卡住判定（默认 10 分钟）</p>
+      <p class="caption">空闲时完全不占槽（island.ui.setPresence(false)）——按需出现是小岛不变成通知中心的关键。</p>
+    </div>
+  </section>
+
+  <!-- 05 sys-pulse -->
+  <section id="sys-pulse">
+    <div class="sec-head">
+      <h2>05 · 系统脉搏</h2>
+      <p class="sec-desc">回答「电脑为什么这么卡 / 风扇为什么在响」——一眼看到凶手。</p>
+    </div>
+    <div class="stage">
+      <div class="stage-label">sys-pulse</div>
+      <p class="pain">
+        风扇突然狂转、电脑烫手、打字都卡——<strong>你知道不对劲，但不知道是谁干的</strong>。
+        打开任务管理器是一套动作；岛直接把答案推给你。
+      </p>
+      <div class="layout2">
+        <div class="mock-cell">
+          <div class="mock-label">常态 · 健康时安静</div>
+          <div class="island-small" role="img" aria-label="系统正常">
+            <div class="slot"><span class="dot ok"></span><span class="muted">CPU</span><span class="val">12%</span><span class="slot-sep" style="width:1px;height:14px;background:var(--stroke)"></span><span class="muted">MEM</span><span class="val">61%</span></div>
+          </div>
+        </div>
+        <div class="mock-cell">
+          <div class="mock-label">通知态 · 过载</div>
+          <div style="display:flex; flex-direction:column; gap:12px; align-items:center;">
+            <div class="island-small temp-warn" role="img" aria-label="CPU 过载">
+              <div class="slot"><span class="dot warn"></span><span class="val" style="color:var(--warning)">CPU 持续 94% · 点开看谁在吃</span></div>
+            </div>
+            <div class="island-small temp-crit" role="img" aria-label="磁盘临界">
+              <div class="slot"><span class="dot err"></span><span class="val" style="color:var(--danger)">C 盘只剩 8%</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="layout2" style="margin-top:14px">
+        <div class="mock-cell">
+          <div class="mock-label">中岛 · 三指标 + Top 3 进程</div>
+          <div class="island-medium" role="img" aria-label="系统详情">
+            <div class="im-head">
+              <div class="im-title"><span class="dot warn"></span>系统脉搏</div>
+              <div class="im-actions"><button type="button" class="btn ghost">收起</button></div>
+            </div>
+            <div class="metrics cols-3">
+              <div class="metric"><div class="label">CPU</div><div class="value" style="color:var(--warning)">94%</div></div>
+              <div class="metric"><div class="label">内存</div><div class="value">92%</div></div>
+              <div class="metric"><div class="label">C 盘</div><div class="value" style="color:var(--danger)">8%</div></div>
+            </div>
+            <div class="rows">
+              <div class="row"><div class="r-name">chrome.exe</div><div class="r-side">38%</div></div>
+              <div class="row"><div class="r-name">code.exe</div><div class="r-side">22%</div></div>
+              <div class="row"><div class="r-name">python.exe</div><div class="r-side">18%</div></div>
+            </div>
+            <div class="im-foot"><span class="status" style="color:var(--warning)">持续过载 42 秒</span><span class="meta">采样 2s</span></div>
+          </div>
+        </div>
+        <div class="mock-cell">
+          <div class="mock-label">通知规则</div>
+          <table class="rules" style="margin-top:0">
+            <tr><th>触发条件</th><th>级别</th><th>文案</th></tr>
+            <tr><td class="cond">CPU &gt;90% 持续 30 秒</td><td><span class="lv warn">warn</span></td><td class="copy">CPU 持续 {n}% · 点开看谁在吃</td></tr>
+            <tr><td class="cond">内存 &gt;90%</td><td><span class="lv warn">warn</span></td><td class="copy">内存 {n}% · 还剩 {大小}</td></tr>
+            <tr><td class="cond">系统盘剩余 &lt;10%</td><td><span class="lv crit">critical</span></td><td class="copy">C 盘只剩 {n}%</td></tr>
+          </table>
+        </div>
+      </div>
+      <p class="meta-line"><b>数据</b> PowerShell Get-Counter / WMI（宿主 process 能力），每 2s 采样　<b>设置</b> 阈值 / 持续窗口（默认 30s）/ 是否常驻小岛（可改成只在异常时出现）</p>
+      <p class="caption">健康时数字是灰绿色的安静驻留；只有「持续」过载才发通知——瞬时尖峰不吵你。</p>
+    </div>
+  </section>
+
+  <!-- 06 focus-flow -->
+  <section id="focus-flow">
+    <div class="sec-head">
+      <h2>06 · 专注番茄</h2>
+      <p class="sec-desc">复用仓库已有规格 <code style="font-family:var(--mono);font-size:12px">docs/plugin-specs/focus-flow.md</code>，这里是它的产品位置。</p>
+    </div>
+    <div class="stage">
+      <div class="stage-label">focus-flow</div>
+      <p class="pain">
+        想专注又怕错过要紧事。<strong>计时器多开一个窗口，专注就被窗口本身打断了</strong>——
+        你会忍不住盯着它看还剩多久。岛上的倒计时余光可见，结束轻轻说一声。
+      </p>
+      <div class="layout2">
+        <div class="mock-cell">
+          <div class="mock-label">常态 · 倒计时驻留</div>
+          <div class="island-small" role="img" aria-label="专注倒计时">
+            <div class="slot"><span class="dot"></span><span class="muted">专注</span><span class="val">24:37</span></div>
+          </div>
+        </div>
+        <div class="mock-cell">
+          <div class="mock-label">通知态 · 一轮完成</div>
+          <div class="island-small temp" role="img" aria-label="番茄完成">
+            <div class="slot"><span class="dot ok"></span><span class="val">25 分钟完成 · 休息 5 分钟</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="layout2" style="margin-top:14px">
+        <div class="mock-cell">
+          <div class="mock-label">中岛 · 控制 + 今日进度</div>
+          <div class="island-medium" role="img" aria-label="专注控制">
+            <div class="im-head">
+              <div class="im-title"><span class="dot"></span>专注番茄</div>
+              <div class="im-actions"><button type="button" class="btn ghost">收起</button></div>
+            </div>
+            <div class="metrics">
+              <div class="metric"><div class="label">当前</div><div class="value">24:37</div><div class="sub">第 4 轮 · 专注中</div></div>
+              <div class="metric"><div class="label">今日</div><div class="value">3<small style="font-size:14px;color:var(--ink-faint)">/8 轮</small></div><div class="sub">累计专注 1小时15分</div></div>
+            </div>
+            <div class="im-foot">
+              <span class="status">专注中</span>
+              <div class="im-actions"><button type="button" class="btn">暂停</button><button type="button" class="btn ghost">结束</button></div>
+            </div>
+          </div>
+        </div>
+        <div class="mock-cell">
+          <div class="mock-label">通知规则</div>
+          <table class="rules" style="margin-top:0">
+            <tr><th>触发条件</th><th>级别</th><th>文案</th></tr>
+            <tr><td class="cond">番茄计时结束</td><td><span class="lv info">info</span></td><td class="copy">{时长} 分钟完成 · 休息 {n} 分钟</td></tr>
+            <tr><td class="cond">休息结束</td><td><span class="lv info">info</span></td><td class="copy">休息结束 · 第 {n} 轮开始</td></tr>
+          </table>
+        </div>
+      </div>
+      <p class="meta-line"><b>数据</b> 本地时钟 + island.storage 记今日轮数，零网络　<b>设置</b> 时长（25 / 50 / 90）/ 自动开始休息 / 每日目标轮数</p>
+      <p class="caption">唯一纯驻留的一个：不发过载通知，只在自己回合结束说一句话——演示岛也能「安静地陪你」。</p>
+    </div>
+  </section>
+
+  <!-- RULES -->
+  <section id="rules">
+    <div class="sec-head">
+      <h2>通知语义（与宿主实现一致）</h2>
+      <p class="sec-desc">五个带通知的插件共用同一套规则，行为定义在 docs/plugin-contract.md §5。</p>
+    </div>
+    <div class="stage">
+      <div class="stage-label">alert levels</div>
+      <div class="level-grid">
+        <div class="level-card">
+          <h3><span class="lv info">info</span>可错过</h3>
+          <p>完成、恢复、周期提醒。错过了没有损失，历史里能找到。</p>
+          <div class="mono">描边 #60A5FA · 默认 4s</div>
+        </div>
+        <div class="level-card">
+          <h3><span class="lv warn">warn</span>该知道</h3>
+          <p>余额偏低、下载卡住、持续过载、电量 20%。不处理会变糟。</p>
+          <div class="mono">描边 #F59E0B + 光晕 · 默认 6s</div>
+        </div>
+        <div class="level-card">
+          <h3><span class="lv crit">critical</span>必须看</h3>
+          <p>任务失败、令牌失效、电量 10%、磁盘临界。错过有真实代价。</p>
+          <div class="mono">描边 #EF4444 + 光晕 · 默认 9s，可到 60s</div>
+        </div>
+      </div>
+      <ul class="behavior">
+        <li><strong>覆盖显示：</strong>提醒占住整条 mini 条，ttl 到期自动回落驻留态；点击提醒的岛进入该插件的中岛。</li>
+        <li><strong>同 key 覆盖：</strong>同一条提醒更新（如电量又降了 5%）立即顶替当前显示并重新计时，不排队。</li>
+        <li><strong>队列上限 3：</strong>正在展开看中岛时提醒排队不插屏；回 mini 条后依次放出。</li>
+        <li><strong>颜色 + 文字双通道：</strong>红圈必须配「令牌失效」这样的字——不只靠颜色传达状态。</li>
+        <li><strong>不重复叫：</strong>同一档事件静默直到状态实质变化（电量再降 5 点、充值、插上电源）。</li>
+      </ul>
+      <p class="caption">这五条是宿主仲裁器已实现的行为，设计不引入新机制——插件拿来就能写。</p>
+    </div>
+  </section>
+
+  <!-- WHY -->
+  <section id="why">
+    <div class="sec-head">
+      <h2>为什么是这六个</h2>
+      <p class="sec-desc">以及为什么刻意不做另外几个。</p>
+    </div>
+    <div class="stage">
+      <div class="stage-label">selection</div>
+      <ul class="behavior">
+        <li><strong>事件每天都发生：</strong>跑任务、花钱调 API、用电、下载、电脑变卡、想专注——不是月度场景，是每天的场景。</li>
+        <li><strong>错过通知有代价：</strong>失败白等十分钟、跑批断在半路、演示没电、磁盘写满——每个通知都对应一个具体的损失。</li>
+        <li><strong>数据本机可得：</strong>WMI、文件系统、进程表、本地时钟、一个已验证的公开接口。装上就能用，没有「先去申请个 API」的门槛。</li>
+        <li><strong>合起来覆盖岛的四种形态：</strong>常驻槽（余额 / 电量 / 脉搏）、按需出现（下载）、倒计时驻留（番茄）、覆盖式提醒（五个）。演示平台能力不用解释，装上就看得到。</li>
+      </ul>
+      <ul class="behavior" style="margin-top:18px">
+        <li><strong>刻意不做 · 会议哨兵：</strong>Windows 日历数据源（Outlook / ics / 企业 IM）每一个都不可靠，做出来会「有时灵有时不灵」——比没有更糟。</li>
+        <li><strong>刻意不做 · 股价 / 汇率 / 天气：</strong>与工作流无关，看完就忘，占的是最贵的常驻槽。</li>
+        <li><strong>刻意不做 · 剪贴板监听：</strong>轮询剪贴板的隐私观感差，收益只覆盖开发者小众场景；不配「首发」。</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- RELATION -->
+  <section id="relation">
+    <div class="sec-head">
+      <h2>与现有资产的关系</h2>
+      <p class="sec-desc">不重复造：能复用的数据和规格都指回仓库。</p>
+    </div>
+    <div class="stage">
+      <div class="stage-label">mapping</div>
+      <ul class="behavior">
+        <li><strong>ds-balance</strong> — 工作台已有「DeepSeek 用量」面板与令牌存储（console-apps/workbench），插件复用同一接口；工作台答全景，岛上收提醒。对齐 design/docs/PRODUCT.md 的 P1。</li>
+        <li><strong>focus-flow</strong> — 仓库已有完整交互规格（docs/plugin-specs/focus-flow.md：滚轮调时长、状态机、存储键），本页只定它的产品位置与通知文案。</li>
+        <li><strong>sys-pulse</strong> — 工作台 KPI 面板的常驻 + 告警化：工作台是「打开才看」，插件是「主动说」。对齐 P2。</li>
+        <li><strong>task-done / battery-guard / dl-radar</strong> — 全新，但只用宿主已实现的能力：background 脚本（process 能力）、island.alert 三档、setPresence、storage。</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer class="site">
+    <div>灵动岛首发插件设计 · token 与 <code>DESIGN.md</code> 一致 · 通知行为与 <code>docs/plugin-contract.md</code> §5 一致</div>
+  </footer>
+</div>
+</body>
+</html>

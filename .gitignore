@@ -1,6 +1,7 @@
 node_modules/
 dist/
-build/
+/build/
+dist-electron/
 release/
 coverage/
 .env
@@ -13,4 +14,5 @@ coverage/
 Thumbs.db
 .idea/
 .vscode/
-
+autocad_data.db
+灵动岛.zip

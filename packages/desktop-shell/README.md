@@ -1,3 +1,5 @@
-# Desktop shell
+# 桌面壳层
 
-Owns island geometry, windows, presentation priority, interaction lifecycle, and surface-level accessibility. It consumes platform facts and emits user intents through typed contracts.
+负责灵动岛几何形态、窗口、展示优先级、交互生命周期和界面无障碍能力。
+
+通过带类型的契约接收平台状态，并输出用户操作意图。

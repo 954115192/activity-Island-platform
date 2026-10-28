@@ -1,57 +1,61 @@
-# System Architecture
+# 系统架构
 
-## Topology
+## 系统关系
 
 ```text
-┌──────────────────────── Desktop Application ────────────────────────┐
-│ Desktop Shell                                                        │
-│  island window · interaction priority · presentation lifecycle       │
-│                                                                     │
-│ Official Modules            Workbench                               │
-│  notifications · devices    history · search · settings             │
-│  transfers · device state                                          │
-│                                                                     │
-│ Platform Services                                                    │
-│  notification adapter · device registry · connection manager         │
-│  transfer engine · permissions · event router · platform storage     │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │ authenticated device session
-                         ┌─────▼─────┐
-                         │ Phone App │
-                         │ auth · filters · send/receive · settings
-                         └───────────┘
+桌面应用
+├─ 桌面壳层
+│  └─ 灵动岛窗口、交互优先级、展示生命周期
+├─ 官方模块
+│  └─ 通知、设备、文件传输、设备状态
+├─ 工作台
+│  └─ 历史、搜索、设置
+└─ 平台服务
+   ├─ 通知适配器、设备注册与连接管理
+   └─ 传输引擎、权限、事件路由、平台存储
+            │
+            │ 经过身份认证的设备会话
+            ▼
+         手机应用
+         └─ 授权、过滤、发送与接收、设置
 ```
 
-## Architectural layers
+## 架构分层
 
-### Desktop shell
+### 桌面壳层
 
-Owns windows, island geometry, interaction state, animation, presentation priority, lifecycle, and accessibility of the desktop surface. It does not own notification parsing, transfer protocol details, or device secrets.
+负责窗口、灵动岛几何形态、交互状态、动画、展示优先级、生命周期和桌面界面的无障碍能力。
 
-### Platform services
+通知解析、传输协议细节和设备密钥由平台服务管理。
 
-Own shared stateful mechanisms:
+### 平台服务
 
-- `NotificationService` adapts operating-system notifications into normalized events.
-- `DeviceService` handles discovery, pairing, identity, connection state, and reconnection.
-- `TransferService` manages sessions, chunks, checksums, cancellation, resume, and cleanup.
-- `PermissionService` evaluates grants, prompts, and revocation.
-- `EventRouter` delivers typed events to approved consumers.
-- `PlatformStorage` persists device records, policy, event history, and transfer metadata.
+平台服务负责有状态的公共机制：
 
-Each service has a typed interface, a lifecycle, structured errors, and observable state. Services must be restartable without forcing the island window to restart.
+- `NotificationService`：将操作系统通知转换为标准化事件。
+- `DeviceService`：负责发现、配对、身份、连接状态和重连。
+- `TransferService`：管理会话、分片、校验、取消、恢复和清理。
+- `PermissionService`：负责授权判断、提示与撤销。
+- `EventRouter`：向获准的使用方分发带类型的事件。
+- `PlatformStorage`：持久化设备记录、策略、事件历史和传输元数据。
 
-### Official modules
+每个服务都应有明确类型的接口、生命周期、结构化错误和可观测状态。服务重启不应迫使灵动岛窗口一起重启。
 
-Official modules compose platform services into user-facing experiences. They may render in the island, the settings surface, and the workbench. They do not bypass permission checks or reach into another module's private state.
+### 官方模块
 
-### Extensions
+官方模块将平台服务组合成用户直接使用的功能，可以在灵动岛、设置界面和工作台中展示。
 
-Extensions run against a versioned public SDK. They can subscribe to approved events and request approved actions. They cannot own the device connection, read all platform storage, or inject arbitrary events into the global router.
+模块必须经过权限检查，并通过公开接口访问其他模块的数据。
 
-## Domain event envelope
+### 扩展
 
-All cross-service events use a common envelope:
+扩展使用带版本的公共 SDK，订阅获准事件并请求获准操作。
+
+设备连接、平台存储和全局事件路由由平台统一管理。扩展仅能通过授权接口使用相应能力。
+
+## 领域事件公共结构
+
+所有跨服务事件使用统一结构：
 
 ```ts
 type DomainEvent<T> = {
@@ -66,44 +70,61 @@ type DomainEvent<T> = {
 }
 ```
 
-Consumers must be idempotent by `eventId`. Sensitive payloads are only delivered when the consumer has a matching grant.
+字段含义：
 
-## Device model
+| 字段 | 含义 |
+|---|---|
+| `eventId` | 事件唯一标识，用于去重与幂等处理 |
+| `type` | 事件类型 |
+| `version` | 事件结构版本 |
+| `occurredAt` | 事件发生时间 |
+| `source` | 来源：桌面端、手机端、平台、模块或扩展 |
+| `subject` | 可选的关联对象标识 |
+| `sensitivity` | 数据敏感级别：公开、私有或敏感 |
+| `payload` | 具体事件数据 |
 
-The platform distinguishes a stable device identity from an active connection:
+使用方必须按 `eventId` 保证幂等处理。敏感数据仅向具备对应授权的使用方分发。
 
-- **Device identity** is the user-approved record and public metadata.
-- **Pairing** establishes trust and stores a revocable relationship.
-- **Connection** is a temporary online session.
-- **Capability grant** determines what this device may exchange.
+## 设备模型
 
-The island and modules consume device state; they do not create independent socket sessions.
+平台区分稳定的设备身份和临时的活动连接：
 
-## Transfer model
+- **设备身份**：用户认可的设备记录及其可公开元数据。
+- **配对**：建立信任关系，该关系可以撤销。
+- **连接**：一次临时在线会话。
+- **能力授权**：决定该设备可以交换哪些数据、执行哪些操作。
 
-A transfer is a durable session with a lifecycle:
+灵动岛和模块使用设备状态，通过平台复用连接。
+
+## 传输模型
+
+传输是具有生命周期的持久会话：
 
 ```text
-created → awaiting-approval → active → verifying → completed
-                                  └──────────────→ failed
-created / active / failed → cancelled
+已创建 → 等待确认 → 传输中 → 校验中 → 已完成
+                         └────────→ 失败
+已创建 / 传输中 / 失败 → 已取消
 ```
 
-Every transfer has a session ID, source, destination, item metadata, progress, checksum state, and error information. Partial files live in managed temporary storage and are removed according to a cleanup policy.
+每个传输会话包含会话标识、来源、目标、文件元数据、进度、校验状态和错误信息。
 
-## Privacy model
+未完成文件保存在受管理的临时存储中，并按照清理策略移除。
 
-Permissions are scoped by consumer, device, resource, and sensitivity. Examples:
+## 隐私模型
 
-- notification metadata
-- notification content
-- device list
-- transfer creation
-- transfer content access
+权限按使用方、设备、资源和敏感级别划分，例如：
 
-The default is deny for sensitive data. Revocation stops future delivery and invalidates active operations where practical.
+- 通知元数据。
+- 通知正文。
+- 设备列表。
+- 创建传输。
+- 访问传输内容。
 
-## Failure model
+敏感数据默认拒绝访问。撤销权限后停止后续分发，并在可行时中止相应的活动操作。
 
-The platform treats connection loss, permission denial, unavailable source applications, malformed events, and partial transfers as expected states. Each produces a typed error and a user-visible recovery path. A module failure must not terminate the desktop shell.
+## 故障模型
+
+连接丢失、权限被拒绝、来源应用不可用、事件格式错误和文件未完整传输，都是需要显式处理的状态。
+
+每种情况都应产生带类型的错误，并向用户提供恢复路径。模块故障不能导致桌面壳层退出。
 

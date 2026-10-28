@@ -1,5 +1,5 @@
-# Phone application
+# 手机应用
 
-This application will provide pairing, device authorization, file send/receive, and selected notification mirroring.
+此应用负责配对、设备授权、文件发送与接收，以及用户选定的通知同步。
 
-The initial supported companion target is Android. Platform-specific capabilities must be represented by explicit contracts rather than assumed to be identical across mobile operating systems.
+首个支持的手机平台是 Android。不同操作系统的能力差异必须通过明确契约表达，不能默认各手机平台具有相同能力。

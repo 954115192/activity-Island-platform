@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>系统通知</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- 小岛：提醒时看到的预览条 -->
+    <section class="view" id="small" title="查看最近通知">
+      <span class="s-badge" id="s-badge">·</span>
+      <span class="s-title" id="s-title">系统通知</span>
+      <span class="s-sub" id="s-sub"></span>
+    </section>
+
+    <!-- 中岛：最新一条详情 + 监听状态 -->
+    <section class="view" id="medium"></section>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

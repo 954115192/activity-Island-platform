@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>工作台</title>
+<link rel="stylesheet" href="../theme.css" />
+<style>
+  :root {
+    color-scheme: dark;
+    font-family: var(--font);
+    /* 本页自己的别名，全部指向 theme.css 的 token，页面里不再出现新的 hex。
+       --accent 不在本地声明：留空才会被设置页写入的内联 --accent（工作台主题色）覆盖。 */
+    --muted: var(--ink-muted);
+    --faint: var(--ink-faint);
+    --line: var(--stroke);
+    --panel: var(--surface-1);
+    --panel-hover: var(--surface-2);
+    --ok: var(--success);
+  }
+  * { box-sizing: border-box; }
+  html, body { width:100%; height:100%; min-width:100%; margin:0; padding:0; overflow:hidden; background:transparent; }
+  /* min-height 锁定布局高度：宿主收起动画会把本页等比 zoom 缩小（宽向 CSS 尺寸恒定），
+     高向视口随之变矮 —— 没有 min-height 的话 body 每帧跟着压缩重排，内容会跳动。
+     本页不调用 workbench.resize()，舞台恒为 1040×700，700 即默认舞台高。 */
+  body { min-height:700px; display:flex; align-items:stretch; justify-content:center; padding:0; color:var(--ink); }
+  [data-activity-island-root] {
+    position:relative; width:100%; max-width:1040px; height:100%; max-height:700px; padding:20px 22px; overflow:hidden;
+    /* 28 必须与岛壳的圆角一致（--r-lg），不能换成 --r-panel：
+       小岛胶囊是工作台唯一的外轮廓，四周必须是黑的，否则小岛弹簧过冲时
+       会在浅色面板外露出一圈黑边（颜色割裂）。所以底色从中心向四周衰减到纯黑，
+       边缘 20px 左右已经是 #000，过冲出来的黑边与面板边缘完全接得上。 */
+    border:0; border-radius:var(--r-lg);
+    background: radial-gradient(78% 78% at 50% 46%, #202636 0%, #06070a 62%, #000000 92%);
+  }
+  .wb { display:grid; gap:14px; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; gap:16px; padding-bottom:12px; border-bottom:1px solid var(--line); }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand-logo { display:grid; width:26px; height:26px; place-items:center; border:1px solid var(--accent-line); border-radius:var(--r-ctl); background:var(--accent-soft); color:var(--accent); }
+  .brand h1 { margin:0; font-size:16px; font-weight:600; letter-spacing:-.01em; }
+  .brand small { display:block; color:var(--faint); font-size:11px; font-weight:400; margin-top:1px; }
+  .statusbar { display:flex; align-items:center; gap:8px; }
+  .exit-workbench { padding:5px 10px; border:1px solid var(--line); border-radius:var(--r-pill); background:transparent; color:var(--muted); font:inherit; font-size:12px; cursor:pointer; }
+  .exit-workbench:hover { background:var(--panel-hover); color:var(--ink); }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border:1px solid var(--line); border-radius:var(--r-pill); background:var(--panel); color:var(--muted); font-size:12px; white-space:nowrap; }
+  .pill .dot { width:6px; height:6px; border-radius:50%; background:var(--ok); }
+  .pill.time { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .grid-4 { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+  .card { border:1px solid var(--line); background:var(--panel); border-radius:var(--r-card); padding:14px; }
+  /* 模块标题行 = 13px/600 左 + 12px faint 右；图标统一 12px 线性 SVG，不用 emoji */
+  .card h3 { margin:0; color:var(--muted); font-size:12px; font-weight:500; display:flex; align-items:center; gap:6px; }
+  .card h3 .ic { flex:0 0 auto; color:var(--accent); }
+  .metric-value { margin-top:8px; font-size:24px; font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+  .metric-note { margin-top:4px; color:var(--faint); font-size:11px; }
+  .section { display:grid; gap:12px; }
+  .section-head { display:flex; align-items:center; justify-content:space-between; }
+  .section-head h2 { margin:0; font-size:13px; font-weight:600; }
+  .section-head .hint { color:var(--faint); font-size:11px; }
+  .shortcuts { display:grid; grid-template-columns:repeat(auto-fill,minmax(86px,1fr)); gap:8px; }
+  .sc-item { position:relative; display:flex; flex-direction:column; align-items:center; gap:6px; padding:10px 6px 8px; border:1px solid var(--line); border-radius:var(--r-card); background:var(--panel); cursor:pointer; transition:background .15s, border-color .15s; }
+  .sc-item:hover { background:var(--panel-hover); border-color:var(--accent-line); }
+  .sc-icon { width:34px; height:34px; border-radius:var(--r-ctl); background:var(--accent-soft); color:var(--accent); display:grid; place-items:center; font-size:14px; font-weight:600; }
+  .sc-name { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:11px; }
+  .sc-del { position:absolute; top:3px; right:3px; width:18px; height:18px; border:0; border-radius:50%; background:var(--panel-hover); color:var(--faint); font-size:11px; line-height:1; cursor:pointer; opacity:0; transition:opacity .15s; display:grid; place-items:center; }
+  .sc-item:hover .sc-del { opacity:1; }
+  .sc-del:hover { background:var(--danger); color:#fff; }
+  .sc-add { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; padding:10px 6px; border:1px dashed var(--line); border-radius:var(--r-card); color:var(--faint); font-size:11px; cursor:pointer; transition:color .15s, border-color .15s; }
+  .sc-add:hover { color:var(--muted); border-color:var(--accent-line); }
+  .sc-add .plus { font-size:18px; line-height:1; }
+  .modal-mask { position:fixed; inset:0; z-index:50; display:none; align-items:center; justify-content:center; background:var(--scrim); }
+  .modal-mask.open { display:flex; }
+  .modal { width:360px; padding:16px; border:1px solid var(--line); border-radius:var(--r-panel); background:var(--panel); box-shadow:0 24px 64px rgba(0,0,0,.55); }
+  .modal h3 { margin:0 0 12px; font-size:14px; font-weight:600; }
+  .field { display:grid; gap:5px; margin-bottom:10px; }
+  .field label { color:var(--muted); font-size:12px; }
+  .field input { width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:var(--r-ctl); background:var(--surface-2); color:var(--ink); font:inherit; font-size:12px; }
+  .field input::placeholder { color:var(--faint); }
+  .field input:focus { border-color:var(--accent); }
+  .modal-actions { display:flex; gap:8px; margin-top:14px; }
+  .btn { flex:1; padding:8px; border:1px solid var(--line); border-radius:var(--r-ctl); background:var(--surface-2); color:var(--ink); font:inherit; font-size:12px; cursor:pointer; }
+  .btn:hover { border-color:var(--faint); }
+  .btn.primary { background:var(--accent); border-color:transparent; color:#fff; }
+  .btn.primary:hover { filter:brightness(1.08); }
+  .cols-2 { display:grid; grid-template-columns:1.15fr .85fr; gap:12px; }
+  .net-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+  .net-label { color:var(--muted); font-size:12px; }
+  .net-num { margin-top:4px; font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .net-num small { color:var(--muted); font-size:12px; font-weight:400; margin-left:2px; }
+  /* 用量格子是卡片里的次级面板，用 --surface-2 与卡片的 --surface-1 拉开一层 */
+  .ds-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-top:10px; }
+  .ds-item { padding:10px 8px; border:1px solid var(--line); border-radius:var(--r-ctl); background:var(--surface-2); text-align:center; }
+  .ds-item span { color:var(--muted); font-size:11px; }
+  .ds-item strong { display:block; margin-top:6px; font-size:16px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--ok); }
+  .ds-item small { color:var(--faint); font-size:11px; }
+  .ds-status { color:var(--muted); font-size:12px; }
+  .ds-status.is-error { color:var(--danger-ink); }
+  .ds-token-row { display:flex; align-items:center; gap:8px; margin-top:10px; padding-top:10px; border-top:1px solid var(--line); }
+  .ds-token-row label { color:var(--muted); font-size:12px; flex:0 0 auto; }
+  .ds-token-row input { flex:1; min-width:0; padding:6px 8px; border:1px solid var(--line); border-radius:var(--r-ctl); background:var(--surface-2); color:var(--ink); font:inherit; font-size:12px; }
+  .ds-token-row input::placeholder { color:var(--faint); }
+  .ds-token-row .ds-token-status { color:var(--faint); font-size:12px; margin-left:auto; }
+  .ds-token-row .ds-token-status.is-ok { color:var(--success-ink); }
+  .footer { display:flex; align-items:center; justify-content:space-between; color:var(--faint); font-size:11px; padding-top:10px; border-top:1px solid var(--line); }
+  .is-hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div data-activity-island-root>
+  <div class="wb">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-logo" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
+            <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+          </svg>
+        </div>
+        <div><h1>工作台</h1><small>Activity Island · Desktop Workbench</small></div>
+      </div>
+      <div class="statusbar">
+        <button class="exit-workbench" id="exit-workbench" type="button">退出工作台</button>
+        <span class="pill"><span class="dot"></span>实时监测</span>
+        <span class="pill time" id="clock">--:--:--</span>
+      </div>
+    </header>
+
+    <section class="grid-4">
+      <div class="card">
+        <h3><span class="ic" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg></span>处理器</h3>
+        <div class="metric-value" id="cpu">--%</div><div class="metric-note">CPU 使用率</div>
+      </div>
+      <div class="card">
+        <h3><span class="ic" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 17v3M12 17v3M17 17v3"/></svg></span>内存</h3>
+        <div class="metric-value" id="memory">--%</div><div class="metric-note" id="memory-detail">--</div>
+      </div>
+      <div class="card">
+        <h3><span class="ic" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></span>运行时间</h3>
+        <div class="metric-value" id="uptime">--</div><div class="metric-note">系统连续运行</div>
+      </div>
+      <div class="card">
+        <h3><span class="ic" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M9 20h6"/></svg></span>平台</h3>
+        <div class="metric-value" id="platform">--</div><div class="metric-note">宿主系统环境</div>
+      </div>
+    </section>
+
+    <section class="section" id="shortcut-section">
+      <div class="section-head"><h2>快捷启动</h2><span class="hint">常用软件 · 支持增删改</span></div>
+      <div class="shortcuts" id="shortcut-grid"></div>
+    </section>
+
+    <section class="cols-2" id="deepseek-section">
+      <article class="card">
+        <div class="section-head"><h2>DeepSeek 用量</h2><span class="ds-status" id="ds-status">检测中…</span></div>
+        <div class="ds-grid"><div class="ds-item"><span>余额</span><strong id="ds-balance">--</strong><small>CNY</small></div><div class="ds-item"><span>赠款额度</span><strong id="ds-bonus">--</strong><small>CNY</small></div><div class="ds-item"><span>充值余额</span><strong id="ds-topped">--</strong><small>CNY</small></div><div class="ds-item"><span>上次检测</span><strong id="ds-checked">--:--</strong><small>每 5 分钟</small></div></div>
+        <div class="ds-token-row"><label>认证令牌</label><input id="ds-token-input" type="password" placeholder="粘贴 Bearer 令牌（只存本机）" autocomplete="off"/><button id="ds-token-save" class="btn primary" style="flex:0 0 auto;padding:6px 12px;font-size:12px" type="button">保存</button><span class="ds-token-status" id="ds-token-status">检测中…</span></div>
+      </article>
+      <article class="card" id="network-panel">
+        <div class="section-head"><h2>网络速率</h2><span class="hint" id="latency">-- ms</span></div>
+            <div class="net-grid"><div><div class="net-label">↓ 下载</div><div class="net-num" id="download">--<small>MB/s</small></div></div><div><div class="net-label">↑ 上传</div><div class="net-num" id="upload">--<small>MB/s</small></div></div></div>
+      </article>
+    </section>
+
+    <!-- 设置界面归宿主：刷新频率 / 主题色 / 是否显示网络速率面板都在
+         控制台管理 →「工作台」→ 内置工作台 →「参数」里改，这里不再画第二套。 -->
+    <footer class="footer"><span>Activity Island <strong>· 工作台</strong></span><span id="updated-at">等待首次同步</span></footer>
+  </div>
+</div>
+
+<div class="modal-mask" id="sc-modal">
+  <div class="modal">
+    <h3 id="sc-modal-title">添加快捷启动</h3>
+    <div class="field"><label>名称</label><input id="sc-name-input" type="text" placeholder="例如：Visual Studio Code" /></div>
+    <div class="field"><label>路径（程序 / 文件 / 文件夹 / 网址）</label><input id="sc-path-input" type="text" placeholder="例如：C:\Program Files\Code.exe 或 https://" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="sc-cancel" type="button">取消</button>
+      <button class="btn primary" id="sc-save" type="button">保存</button>
+    </div>
+  </div>
+</div>
+<script src="./script.js"></script></body>
+</html>
