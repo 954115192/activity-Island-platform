@@ -10,7 +10,7 @@ import http from 'node:http'
 import https from 'node:https'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { TLSSocket } from 'node:tls'
-import { Transform } from 'node:stream'
+import { Transform, Readable, Writable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import selfsigned from 'selfsigned'
 import type { NearbyDevice, TransferFile, TransferSession, TransferSnapshot, TransferState } from './contracts'
@@ -19,6 +19,12 @@ const GROUP = '224.0.0.167'
 const DEFAULT_PORT = 53317
 const API = '/api/localsend/v2'
 const MAX_FILES = 200
+const MAX_TEXT = 64 * 1024
+type Source = TransferFile & { path?: string }
+const isText = (file: TransferFile) => file.kind === 'text'
+const completePreview = (file: TransferFile) => isText(file) && typeof file.preview === 'string'
+  && Buffer.byteLength(file.preview, 'utf8') === file.size
+  && (!file.sha256 || createHash('sha256').update(file.preview).digest('hex').toLowerCase() === file.sha256.toLowerCase())
 const TERMINAL = new Set<TransferState>(['completed', 'rejected', 'cancelled', 'failed'])
 const digest = (value: string) => value.replace(/:/g, '').toUpperCase()
 const remoteHost = (value = '') => value.replace(/^::ffff:/, '')
@@ -72,7 +78,7 @@ export class LocalSendService extends EventEmitter {
   private fingerprint = ''
   private devices = new Map<string, NearbyDevice>()
   private active = new Map<string, Active>()
-  private draft: Array<TransferFile & { path: string }> = []
+  private draft: Source[] = []
   private state: TransferSnapshot['status'] = 'stopped'
   private error?: string
   private port: number
@@ -275,7 +281,7 @@ export class LocalSendService extends EventEmitter {
     if (reply.status !== 200 || !this.remember({ ...reply.body, port: peer.port, protocol: peer.protocol }, peer.host, reply.fingerprint)) throw new Error('对方未返回兼容的 LocalSend 设备信息')
   }
 
-  async selectFiles(paths: string[]): Promise<void> {
+  async selectFiles(paths: string[], append = false): Promise<void> {
     if (!Array.isArray(paths) || paths.length === 0 || paths.length > MAX_FILES || paths.some(p => typeof p !== 'string' || !path.isAbsolute(p))) throw new Error('请选择 1–200 个本地文件')
     const files = []
     for (const filePath of [...new Set(paths)]) {
@@ -283,11 +289,36 @@ export class LocalSendService extends EventEmitter {
       if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('首版支持普通文件，请将文件夹打包后再发送')
       files.push({ id: randomUUID(), fileName: safeFileName(path.basename(filePath)), size: stat.size, fileType: 'application/octet-stream', path: filePath })
     }
-    this.draft = files
+    const combined = append ? [...this.draft, ...files] : files
+    const seen = new Set<string>()
+    const unique = combined.filter(file => {
+      if (!file.path) return true
+      const key = process.platform === 'win32' ? path.resolve(file.path).toLowerCase() : path.resolve(file.path)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    if (unique.length > MAX_FILES) throw new Error('最多选择 200 个文件')
+    this.draft = unique
     this.changed()
   }
 
   clearDraft(): void { this.draft = []; this.changed() }
+
+  async sendText(deviceId: string, text: string, pin?: string): Promise<string> {
+    if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text, 'utf8') > MAX_TEXT) throw new Error('请输入文本，最多 64 KB')
+    return this.send(deviceId, pin, text)
+  }
+
+  textForCopy(sessionId: string): string {
+    const active = this.active.get(sessionId)
+    if (!active || active.record.state !== 'completed') throw new Error('请先接受文本')
+    const texts = active.record.files.filter(isText).map(f => f.text ?? (completePreview(f) ? f.preview : undefined)).filter((t): t is string => t !== undefined)
+    if (!texts.length) throw new Error('本次文本预览已不可用')
+    return texts.join('\n\n')
+  }
+
+  removeDraftFile(id: string): void { this.draft = this.draft.filter(file => file.id !== id); this.changed() }
 
   async configure(values: { alias?: string; saveDirectory?: string }): Promise<void> {
     if (values.alias !== undefined) {
@@ -329,20 +360,21 @@ export class LocalSendService extends EventEmitter {
   private persist(): void {
     // 仅保存传输摘要；不保存凭据、绝对源路径或临时授权。
     const records = this.snapshot().sessions.filter(s => TERMINAL.has(s.state)).slice(0, 50)
+      .map(s => ({ ...s, files: s.files.map(({ preview: _preview, text: _text, ...f }) => f) }))
     this.historyWrite = this.historyWrite.then(() => fs.writeFile(path.join(this.options.baseDir, 'history.json.tmp'), JSON.stringify({ version: 1, records })))
       .then(() => fs.rename(path.join(this.options.baseDir, 'history.json.tmp'), path.join(this.options.baseDir, 'history.json'))).catch(() => {})
   }
 
-  async send(deviceId: string, pin?: string): Promise<string> {
+  async send(deviceId: string, pin?: string, text?: string): Promise<string> {
     const peer = this.devices.get(deviceId)
     if (this.state !== 'running') throw new Error('文件传输服务未就绪')
     if (!peer || Date.now() - peer.lastSeen > 75000) throw new Error('设备已离线，请刷新或重新连接')
-    if (!this.draft.length) throw new Error('请先添加文件')
+    if (text === undefined && !this.draft.length) throw new Error('请先添加文件或文本')
     if ([...this.active.values()].some(a => a.record.direction === 'outgoing' && !TERMINAL.has(a.record.state))) throw new Error('已有发送任务，请等待完成或取消')
     if (pin && !/^\d{4,12}$/.test(pin)) throw new Error('接收码应为 4–12 位数字')
-    const sourceFiles = this.draft.map(f => ({ ...f }))
+    const sourceFiles: Source[] = text === undefined ? this.draft.map(f => ({ ...f })) : [{ id: randomUUID(), fileName: '文本.txt', size: Buffer.byteLength(text, 'utf8'), fileType: 'text/plain', kind: 'text', preview: text }]
     const active = this.newSession('outgoing', peer, sourceFiles.map(({ path: _path, ...f }) => f))
-    this.draft = []
+    if (text === undefined) this.draft = []
     this.changed()
     void this.sendInternal(active, peer, sourceFiles, pin).catch(error => {
       this.update(active, 'failed', message(error))
@@ -350,15 +382,14 @@ export class LocalSendService extends EventEmitter {
     return active.record.id
   }
 
-  private async sendInternal(active: Active, peer: NearbyDevice, sources: Array<TransferFile & { path: string }>, pin?: string): Promise<void> {
+  private async sendInternal(active: Active, peer: NearbyDevice, sources: Source[], pin?: string): Promise<void> {
     const signal = active.controller.signal
     this.update(active, 'verifying')
     for (const source of sources) {
       const hash = createHash('sha256')
-      const stream = createReadStream(source.path, { signal })
+      const stream = source.path ? createReadStream(source.path, { signal }) : Readable.from([Buffer.from(source.preview!, 'utf8')])
       for await (const chunk of stream) hash.update(chunk)
-      const stat = await fs.stat(source.path)
-      if (stat.size !== source.size) throw new Error('源文件已变化，请重新添加')
+      if (source.path && (await fs.stat(source.path)).size !== source.size) throw new Error('源文件已变化，请重新添加')
       source.sha256 = hash.digest('hex')
       active.record.files.find(f => f.id === source.id)!.sha256 = source.sha256
     }
@@ -367,6 +398,11 @@ export class LocalSendService extends EventEmitter {
       info: this.info(), files: Object.fromEntries(sources.map(({ path: _path, ...f }) => [f.id, f])),
     }, signal, this.options.offerTimeoutMs ?? 95000)
     if (reply.status === 403) { this.update(active, 'rejected', '对方拒绝了接收'); return }
+    if (reply.status === 204 && sources.every(completePreview)) {
+      active.record.bytes = active.record.total
+      this.update(active, 'completed')
+      return
+    }
     if (reply.status === 401) throw new Error('对方需要接收码，请重新添加文件并填写接收码后发送')
     if (reply.status !== 200 || typeof reply.body.sessionId !== 'string' || !reply.body.files || typeof reply.body.files !== 'object') throw new Error(`对方未接受请求（HTTP ${reply.status}），请重试`)
     const remoteId = reply.body.sessionId
@@ -395,6 +431,13 @@ export class LocalSendService extends EventEmitter {
     const { response, timer } = active.pending
     clearTimeout(timer)
     active.pending = undefined
+    if (active.record.files.every(completePreview)) {
+      for (const file of active.record.files) file.text = file.preview
+      active.record.bytes = active.record.total
+      this.json(response, 204, {})
+      this.update(active, 'completed')
+      return
+    }
     for (const file of active.record.files) active.tokens.set(file.id, randomBytes(32).toString('hex'))
     this.json(response, 200, { sessionId: id, files: Object.fromEntries(active.tokens) })
     active.activityAt = Date.now()
@@ -425,7 +468,13 @@ export class LocalSendService extends EventEmitter {
       const files: TransferFile[] = entries.map(([id, raw]) => {
         if (!raw || typeof raw !== 'object' || !id || id.length > 200 || raw.id !== id || !Number.isSafeInteger(raw.size) || Number(raw.size) < 0 || Number(raw.size) > 1024 ** 4) throw new Error('文件元数据无效')
         if (raw.sha256 != null && (typeof raw.sha256 !== 'string' || !/^[a-fA-F0-9]{64}$/.test(raw.sha256))) throw new Error('文件校验值无效')
-        return { id, fileName: safeFileName(raw.fileName), size: Number(raw.size), fileType: String(raw.fileType || 'application/octet-stream').slice(0, 100), sha256: raw.sha256 as string | undefined }
+        const fileType = String(raw.fileType || 'application/octet-stream').slice(0, 100)
+        const text = fileType.split(';')[0].trim().toLowerCase() === 'text/plain' && typeof raw.preview === 'string' && Number(raw.size) <= MAX_TEXT
+          && Buffer.byteLength(raw.preview, 'utf8') <= MAX_TEXT && Buffer.byteLength(raw.preview, 'utf8') <= Number(raw.size)
+        const file: TransferFile = { id, fileName: safeFileName(raw.fileName), size: Number(raw.size), fileType, sha256: raw.sha256 as string | undefined,
+          ...(text ? { kind: 'text' as const, preview: raw.preview as string } : {}) }
+        if (text && Buffer.byteLength(file.preview!, 'utf8') === file.size && !completePreview(file)) throw new Error('文本预览校验失败')
+        return file
       })
       const total = files.reduce((sum, f) => sum + f.size, 0)
       if (!Number.isSafeInteger(total)) throw new Error('文件总大小超出范围')
@@ -472,6 +521,7 @@ export class LocalSendService extends EventEmitter {
     active.activityAt = Date.now()
     const temporary = path.join(directory, `.island-${active.record.id}-${randomUUID()}.part`)
     let bytes = 0
+    const textChunks: Buffer[] = []
     const hash = createHash('sha256')
     const meter = new Transform({ transform: (chunk: Buffer, _encoding, callback) => {
       bytes += chunk.length
@@ -484,13 +534,17 @@ export class LocalSendService extends EventEmitter {
     } })
     req.setTimeout(30000, () => req.destroy(new Error('接收超时')))
     try {
-      await pipeline(req, meter, createWriteStream(temporary, { flags: 'wx' }), { signal: active.controller.signal })
+      const target = isText(file) ? new Writable({ write(chunk: Buffer, _encoding, callback) { textChunks.push(Buffer.from(chunk)); callback() } }) : createWriteStream(temporary, { flags: 'wx' })
+      await pipeline(req, meter, target, { signal: active.controller.signal })
       if (bytes !== file.size) throw new Error('文件未完整接收')
       const actual = hash.digest('hex')
       if (file.sha256 && actual.toLowerCase() !== file.sha256.toLowerCase()) throw new Error('文件 SHA-256 校验失败')
       if (active.controller.signal.aborted) throw new Error('传输已取消')
-      const destination = await this.publish(temporary, directory, file.fileName)
-      active.paths.push(destination)
+      if (isText(file)) file.text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(textChunks))
+      else {
+        const destination = await this.publish(temporary, directory, file.fileName)
+        active.paths.push(destination)
+      }
       active.received.add(id)
       active.uploading.delete(id)
       this.json(res, 200, {})
@@ -548,7 +602,7 @@ export class LocalSendService extends EventEmitter {
     })
   }
 
-  private async upload(peer: NearbyDevice, route: string, file: TransferFile & { path: string }, active: Active): Promise<void> {
+  private async upload(peer: NearbyDevice, route: string, file: Source, active: Active): Promise<void> {
     const signal = active.controller.signal
     await new Promise<void>((resolve, reject) => {
       const request = (peer.protocol === 'https' ? https : http).request({
@@ -570,7 +624,7 @@ export class LocalSendService extends EventEmitter {
         this.changed()
         callback(null, chunk)
       } })
-      void pipeline(createReadStream(file.path), meter, request, { signal }).catch(reject)
+      void pipeline(file.path ? createReadStream(file.path) : Readable.from([Buffer.from(file.preview!, 'utf8')]), meter, request, { signal }).catch(reject)
     })
   }
 
@@ -578,7 +632,7 @@ export class LocalSendService extends EventEmitter {
     req.setTimeout(15000, () => req.destroy())
     const chunks: Buffer[] = []
     let size = 0
-    for await (const chunk of req) { size += chunk.length; if (size > 262144) throw new Error('请求过大'); chunks.push(chunk) }
+    for await (const chunk of req) { size += chunk.length; if (size > 524288) throw new Error('请求过大'); chunks.push(chunk) }
     const text = Buffer.concat(chunks).toString('utf8')
     if (!text) return {}
     const parsed = JSON.parse(text)

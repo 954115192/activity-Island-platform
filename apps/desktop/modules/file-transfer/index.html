@@ -2,21 +2,45 @@
 <html lang="zh-CN">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>文件传输 · Activity Island</title><link rel="stylesheet" href="style.css"></head>
 <body>
-  <main>
-    <header><div class="heading"><span class="eyebrow">ACTIVITY ISLAND / LOCALSEND</span><h1>文件传输<span id="status" class="status">启动中</span></h1></div><button id="close" class="icon-button" aria-label="收起文件传输" title="收起，传输会在后台继续">×</button></header>
-    <div id="notice" role="alert" hidden></div>
-    <section id="incoming" aria-label="接收请求" hidden></section>
-    <section id="draft-section" aria-labelledby="draft-heading">
-      <div class="section-heading"><h2 id="draft-heading">准备发送</h2><span id="draft-summary" class="muted"></span><button id="clear" class="text-button" hidden>移除文件</button></div>
-      <div id="draft" class="drop-area"></div>
-      <div class="section-heading"><h2>附近的设备</h2><button id="refresh" class="text-button">刷新</button><button id="connect-toggle" class="text-button">连接地址</button></div>
-      <form id="connect-form" hidden><label class="sr-only" for="address">设备地址</label><input id="address" placeholder="192.168.1.8:53317" required><button type="submit">连接</button></form>
-      <div id="devices" class="device-list"></div>
-      <div class="pin-field"><label for="pin">接收码 <span class="muted">（仅对方要求时填写）</span></label><input id="pin" type="password" inputmode="numeric" maxlength="12" autocomplete="off" placeholder="可选"></div>
-    </section>
-    <section id="tasks-section" aria-label="传输任务" hidden><div class="section-heading"><h2>传输记录</h2><span class="muted">收起后继续传输</span></div><div id="tasks"></div></section>
-    <footer><div class="identity"><span id="identity"></span><button id="rename" class="text-button">改名</button></div><div class="save"><button id="folder" class="text-button" title="打开接收文件夹">接收文件夹</button><span id="directory" class="muted"></span><button id="directory-change" class="text-button">更改</button></div></footer>
-    <form id="rename-form" hidden><label for="alias">本机设备名称</label><div class="form-row"><input id="alias" maxlength="60" required><button type="submit">保存</button></div></form>
+  <main class="app">
+    <div class="island-toolbar"><div class="transfer-mark" data-icon="transfer" aria-hidden="true"></div><nav class="rail" aria-label="文件传输导航">
+      <button data-page="send" aria-current="page"><span data-icon="send"></span><span>发送</span></button>
+      <button data-page="receive"><span data-icon="receive"></span><span>接收</span><i id="receive-dot" hidden></i></button>
+      <button data-page="settings"><span data-icon="settings"></span><span>设置</span></button>
+    </nav><button id="history" class="icon-button" aria-label="传输记录" title="传输记录"><span data-icon="history"></span></button><button id="close" class="icon-button" aria-label="收起文件传输" title="收起，传输会在后台继续"><span data-icon="close"></span></button></div>
+    <div class="workspace">
+      <header><h1 id="page-title">隔空分享</h1><p id="page-subtitle" class="muted">轻轻一放，分享给身边的设备</p></header>
+      <div id="notice" role="alert" hidden></div>
+      <button id="active-banner" class="active-banner" hidden></button>
+      <div class="content" id="content">
+        <section id="send-page" aria-label="发送文件">
+          <div class="send-mode" role="group" aria-label="分享内容类型"><button data-mode="files" aria-pressed="true"><span data-icon="file"></span>文件</button><button data-mode="text" aria-pressed="false"><span data-icon="text"></span>文本与链接</button></div>
+          <section id="text-section" hidden aria-label="输入文本"><label class="sr-only" for="message">要发送的文本或链接</label><textarea id="message" placeholder="写点什么，或粘贴一个链接…" maxlength="65536" spellcheck="false"></textarea><div class="composer-meta"><span id="text-count">0 / 64 KB</span><button id="text-clear" class="text-button">清空文本</button></div></section>
+          <section id="draft-section" aria-labelledby="draft-heading">
+            <div class="section-heading"><h2 id="draft-heading">选择文件</h2><button id="clear" class="text-button" hidden>清空</button></div>
+            <div id="draft"></div>
+          </section>
+          <div class="section-heading nearby-heading"><h2>附近的设备 <span id="device-count" class="count"></span></h2><button id="connect-toggle" class="icon-button" title="通过 IP 地址连接" aria-label="通过 IP 地址连接"><span data-icon="connect"></span></button><button id="refresh" class="icon-button" title="刷新设备" aria-label="刷新设备"><span data-icon="refresh"></span></button></div>
+          <form id="connect-form" hidden><label for="address">设备的 IP 地址</label><div class="form-row"><input id="address" placeholder="192.168.1.8:53317" required><button class="primary" type="submit">连接</button></div></form>
+          <p id="send-hint" class="muted">先选择文件，再点击设备发送</p>
+          <div id="devices" class="device-list"></div>
+          <details class="advanced"><summary>对方需要接收码？</summary><label for="pin">接收码</label><input id="pin" type="password" inputmode="numeric" maxlength="12" autocomplete="off" placeholder="填写对方的接收码"></details>
+        </section>
+        <section id="receive-page" hidden aria-label="接收文件">
+          <div class="receive-id"><div class="receive-symbol" data-icon="receive"></div><p id="status" class="status">启动中</p><h2 id="identity"></h2><p class="muted">在另一台设备上选择这个名称</p><p class="muted">支持灵动岛和 LocalSend</p></div>
+          <button class="folder-shortcut" data-action="folder"><span data-icon="folder"></span>打开接收文件夹<span data-icon="arrow"></span></button>
+        </section>
+        <section id="settings-page" hidden aria-label="传输设置">
+          <h2 class="settings-heading">设备</h2><div class="setting-row"><div><strong>设备名称</strong><p id="settings-alias"></p></div><button id="rename" class="text-button">修改</button></div>
+          <form id="rename-form" hidden><label for="alias">本机设备名称</label><div class="form-row"><input id="alias" maxlength="60" required><button class="primary" type="submit">保存</button></div></form>
+          <h2 class="settings-heading">接收</h2><div class="setting-row"><div><strong>保存位置</strong><p id="directory"></p></div><button id="directory-change" class="text-button">更改</button></div>
+          <h2 class="settings-heading">网络</h2><div class="setting-row"><div><strong>本机地址</strong><p id="network"></p></div></div><p class="settings-note muted">设备需连接同一局域网。手机端可使用 LocalSend，接收文件前会请求你的确认。</p>
+        </section>
+        <section id="history-page" hidden aria-label="传输记录"><div id="tasks"></div></section>
+        <section id="transfer-page" hidden aria-label="当前传输"><div id="incoming" hidden></div><div id="current-task"></div></section>
+      </div>
+      <footer><span id="footer-status" class="status">启动中</span><span id="footer-alias"></span><span id="copy-feedback" role="status" aria-live="polite"></span><span id="footer-help">同一局域网 · 无需互联网</span></footer>
+    </div>
   </main>
   <script src="app.js"></script>
 </body>

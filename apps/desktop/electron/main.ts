@@ -62,6 +62,7 @@ let transferPanelOpen = false
 let transferDragging = false
 let transferProgressVisible = false
 let transferDragTimer: NodeJS.Timeout | null = null
+let transferPanelSize = { width: 560, height: 510 }
 /** 独立通知历史窗口（托盘右键与中岛都能打开）。 */
 let notificationHistoryWindow: BrowserWindow | null = null
 /** 正在把开发目录同步到安装目录的时间窗，用来吞掉同步自身触发的 installed 事件。 */
@@ -2168,7 +2169,7 @@ async function openTransferPanel(): Promise<void> {
     try { await transferViewLoading } finally { transferViewLoading = null }
   }
   if (!transferPanelOpen || serial !== transitionSerial) return
-  const size = { width: 620, height: 560 }
+  const size = transferPanelSize
   const stage = stageOrigin(size.width, size.height)
   islandState.patch({ mode: 'custom', activePluginId: null, visiblePluginIds: [], sticky: true })
   setHitRegion(stageHitRegion(stage, 28), false)
@@ -2216,7 +2217,7 @@ function installTransferIpc(): void {
     sendHost('transfers:drag-preview', false)
     void (async () => {
       await openTransferPanel()
-      try { await transferService?.selectFiles(paths as string[]) }
+      try { await transferService?.selectFiles(paths as string[], true) }
       catch (error) { transferView?.webContents.send('transfers:error', String((error as Error).message || error)) }
     })()
   })
@@ -2225,13 +2226,25 @@ function installTransferIpc(): void {
     try {
       switch (method) {
         case 'snapshot': return { ok: true, snapshot: transferService.snapshot() }
+        case 'layout': {
+          const size = value === 'text' ? { width: 520, height: 480 } : value === 'task' ? { width: 520, height: 460 } : { width: 560, height: 510 }
+          if (size.width === transferPanelSize.width && size.height === transferPanelSize.height) break
+          transferPanelSize = size
+          if (transferPanelOpen && viewManager) {
+            const stage = stageOrigin(size.width, size.height)
+            setHitRegion(stageHitRegion(stage, 28), false)
+            viewManager.setTransferStage(stage)
+            sendLayout('custom', undefined, [], false, size, stage.y, [], size, true)
+          }
+          break
+        }
         case 'refresh': transferService.announce(); break
         case 'retry': await transferService.start(); break
         case 'connect': await transferService.connect(String(value ?? '')); break
         case 'configure': await transferService.configure({ alias: String(value ?? '') }); break
         case 'choose': {
           const picked = await dialog.showOpenDialog(mainWindow!, { title: '选择要发送的文件', properties: ['openFile', 'multiSelections'] })
-          if (!picked.canceled) await transferService.selectFiles(picked.filePaths)
+          if (!picked.canceled) await transferService.selectFiles(picked.filePaths, true)
           break
         }
         case 'directory': {
@@ -2244,10 +2257,25 @@ function installTransferIpc(): void {
           await transferService.send(String(input?.id ?? ''), typeof input?.pin === 'string' ? input.pin : undefined)
           break
         }
+        case 'send-text': {
+          const input = value as { id?: unknown; text?: unknown; pin?: unknown }
+          if (typeof input?.text !== 'string') throw new Error('请输入文本')
+          await transferService.sendText(String(input.id ?? ''), input.text, typeof input.pin === 'string' ? input.pin : undefined)
+          break
+        }
+        case 'copy-text': clipboard.writeText(transferService.textForCopy(String(value))); break
+        case 'open-text': {
+          const text = transferService.textForCopy(String(value)).trim()
+          const url = new URL(text)
+          if (!['https:', 'http:'].includes(url.protocol)) throw new Error('仅支持打开网页链接')
+          await shell.openExternal(url.href)
+          break
+        }
         case 'accept': transferService.accept(String(value)); break
         case 'reject': transferService.reject(String(value)); break
         case 'cancel': transferService.cancel(String(value)); break
         case 'clear': transferService.clearDraft(); break
+        case 'remove': transferService.removeDraftFile(String(value)); break
         case 'folder': await shell.openPath(transferService.snapshot().saveDirectory); break
         case 'close': hideTransferPanel(); await showRest(); break
         default: return { ok: false, error: '未知文件传输操作' }

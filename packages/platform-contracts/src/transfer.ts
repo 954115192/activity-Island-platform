@@ -19,6 +19,9 @@ export interface TransferFile {
   size: number
   fileType: string
   sha256?: string
+  kind?: 'text'
+  preview?: string
+  text?: string
 }
 
 export interface TransferSession {

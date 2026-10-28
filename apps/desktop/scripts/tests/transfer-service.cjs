@@ -141,3 +141,83 @@ test('传输摘要与设备证书重启后恢复；不保存源路径和会话�
   await restarted.connect(`127.0.0.1:${receiver.snapshot().port}`)
   assert.equal(receiver.snapshot().devices[0].id, originalId)
 })
+
+test('LocalSend：追加与逐项移除草稿；重复文件不重复，失败保留原选择', async t => {
+  const { sender, root } = await pair(t)
+  const first = path.join(root, 'first.txt')
+  const second = path.join(root, 'second.txt')
+  await fs.writeFile(first, 'first')
+  await fs.writeFile(second, 'second')
+  await sender.selectFiles([first])
+  const firstId = sender.snapshot().draft[0].id
+  await sender.selectFiles([first, second], true)
+  assert.equal(sender.snapshot().draft.length, 2)
+  assert.equal(sender.snapshot().draft[0].id, firstId)
+  await assert.rejects(sender.selectFiles([path.join(root,'missing.txt')], true))
+  assert.equal(sender.snapshot().draft.length, 2)
+  sender.removeDraftFile(firstId)
+  assert.deepEqual(sender.snapshot().draft.map(f => f.fileName), ['second.txt'])
+  assert.equal('path' in sender.snapshot().draft[0], false)
+  sender.clearDraft()
+  assert.equal(sender.snapshot().draft.length, 0)
+})
+
+test('文本分享：LocalSend preview / 204，无 txt 落盘、保留文件草稿、正文不写历史', async t => {
+  const { sender, receiver, root, peer } = await pair(t)
+  const file = path.join(root, 'keep.txt')
+  await fs.writeFile(file, 'keep')
+  await sender.selectFiles([file])
+  const text = '你好，灵动岛 🌏\nhttps://example.com/?a=1&b=2\n<script>不应执行</script>'
+  await sender.sendText(peer, text)
+  await waitFor(() => receiver.snapshot().sessions[0]?.state === 'waiting')
+  const offer = receiver.snapshot().sessions[0]
+  assert.equal(offer.files[0].kind, 'text')
+  assert.equal(offer.files[0].preview, text)
+  assert.throws(() => receiver.textForCopy(offer.id), /先接受/)
+  receiver.accept(offer.id)
+  await waitFor(() => sender.snapshot().sessions[0]?.state === 'completed')
+  assert.equal(receiver.textForCopy(offer.id), text)
+  assert.equal(receiver.snapshot().sessions[0].bytes, Buffer.byteLength(text))
+  assert.deepEqual(await fs.readdir(path.join(root,'receiver','files')), [])
+  assert.equal(sender.snapshot().draft[0].fileName, 'keep.txt')
+  await sender.stop()
+  await receiver.stop()
+  for (const name of ['sender','receiver']) {
+    const history = await fs.readFile(path.join(root,name,'history.json'),'utf8')
+    assert.equal(history.includes('preview'), false)
+    assert.equal(history.includes('不应执行'), false)
+  }
+  await assert.rejects(sender.sendText(peer, '   '))
+  await assert.rejects(sender.sendText(peer, '字'.repeat(24000)), /64 KB/)
+})
+
+test('独立 LocalSend 文本客户端：完整预览 204、拒绝、部分预览上传后读正文', async t => {
+  const { receiver, root } = await pair(t)
+  const info = { alias:'LocalSend 手机', version:'2.0', fingerprint:'external-text', port:53317, protocol:'https', deviceType:'mobile' }
+  const text = '第一行\n第二行 😊'
+  const bytes = Buffer.from(text)
+  const metadata = { id:'message', fileName:'message.txt', size:bytes.length, fileType:'text/plain', preview:text }
+  let pending = request(receiver.snapshot().port, '/prepare-upload', { info, files:{ message:metadata } })
+  await waitFor(() => receiver.snapshot().sessions[0]?.state === 'waiting')
+  receiver.accept(receiver.snapshot().sessions[0].id)
+  assert.equal((await pending).status, 204)
+  assert.equal(receiver.textForCopy(receiver.snapshot().sessions[0].id), text)
+  assert.deepEqual(await fs.readdir(path.join(root,'receiver','files')), [])
+  pending = request(receiver.snapshot().port, '/prepare-upload', { info, files:{ message:metadata } })
+  await waitFor(() => receiver.snapshot().sessions[0]?.state === 'waiting')
+  receiver.reject(receiver.snapshot().sessions[0].id)
+  assert.equal((await pending).status, 403)
+  // 部分 preview 不应当作正文；接受后继续走正常 upload，校验完整字节。
+  pending = request(receiver.snapshot().port, '/prepare-upload', { info, files:{ message:{...metadata, preview:'第一行'} } })
+  await waitFor(() => receiver.snapshot().sessions[0]?.state === 'waiting')
+  const id = receiver.snapshot().sessions[0].id
+  receiver.accept(id)
+  const reply = await pending
+  assert.equal(reply.status, 200)
+  const query = new URLSearchParams({sessionId:reply.body.sessionId,fileId:'message',token:reply.body.files.message})
+  assert.equal((await request(receiver.snapshot().port, '/upload?'+query, bytes, true)).status, 200)
+  assert.equal(receiver.textForCopy(id), text)
+  assert.deepEqual(await fs.readdir(path.join(root,'receiver','files')), [])
+  // 完整预览和声明的哈希不一致，不能直接确认成功。
+  assert.equal((await request(receiver.snapshot().port, '/prepare-upload', { info, files:{message:{...metadata,sha256:'0'.repeat(64)}} })).status, 400)
+})
