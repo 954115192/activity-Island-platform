@@ -39,6 +39,8 @@ contextBridge.exposeInMainWorld('islandSettings', {
   setCheckUpdatesOnLaunch: (enabled: boolean) => ipcRenderer.invoke('settings:set-check-updates', enabled),
   // 内置通知能力（控制台「通知」页）：状态、令牌、历史入口。
   notificationStatus: () => ipcRenderer.invoke('notifications:snapshot', 1),
+  notificationSettings: () => ipcRenderer.invoke('notifications:settings'),
+  setNotificationSettings: (patch: Record<string, unknown>) => ipcRenderer.invoke('notifications:settings:set', patch),
   copyNotificationToken: () => ipcRenderer.invoke('notifications:copy-token'),
   rotateNotificationToken: () => ipcRenderer.invoke('notifications:rotate-token'),
   openNotificationHistory: () => ipcRenderer.invoke('notifications:open-history'),

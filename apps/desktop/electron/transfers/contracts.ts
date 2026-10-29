@@ -22,6 +22,7 @@ export interface TransferFile {
   kind?: 'text'
   preview?: string
   text?: string
+  canLocate?: boolean
 }
 
 export interface TransferSession {
@@ -32,6 +33,11 @@ export interface TransferSession {
   files: TransferFile[]
   state: TransferState
   bytes: number
+  preparedBytes?: number
+  currentFile?: string
+  speedBytesPerSecond?: number
+  speedUpdatedAt?: number
+  canRetry?: boolean
   total: number
   createdAt: number
   error?: string
@@ -47,5 +53,6 @@ export interface TransferSnapshot {
   error?: string
   devices: NearbyDevice[]
   draft: TransferFile[]
+  draftNotice?: string
   sessions: TransferSession[]
 }

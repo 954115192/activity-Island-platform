@@ -32,7 +32,7 @@ cd apps/desktop
 npm run build:listener
 ```
 
-产物 `notify-listener.exe`（自包含单文件，约 11MB）会覆盖到 `resources/notifications/`。
+产物 `notify-listener.exe`（自包含单文件，约 11MB）生成到 `build/notify-listener/`，避免覆盖正在运行的监听器。打包脚本会先重建并将其放入安装包的 `resources/notifications/`。
 需要 .NET 10 SDK。若在无网络环境构建失败，可加 `-p:SelfContained=false` 先验证代码可编译。
 
-二进制不入库（见 `.gitignore`）；打包前必须执行一次构建，否则应用会回退到 PowerShell 监听器。
+二进制不入库（见 `.gitignore`）；源码运行时优先使用该构建产物的临时缓存副本，缺少时回退到已有监听器或 PowerShell。`npm run dist` 和 `npm run dist:portable` 会自动构建监听器。

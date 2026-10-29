@@ -12,22 +12,13 @@ const SOURCES_FILE = 'sources.json'
 export class PluginManager {
   private readonly plugins = new Map<string, PluginDescriptor>()
   private readonly problems: PluginIssue[] = []
-  private readonly builtinIds = new Set<string>()
-  private readonly builtinRoots: string[] = []
   /** 插件 id → 开发目录（安装时记录），热重载靠它把改动同步进来。 */
   private sources: Record<string, string> = {}
 
-  constructor(private readonly roots: string[], private readonly userRoot?: string) {}
-
-  /** 内置模块根目录：其中发现的模块标记为内置，用户目录无法覆盖、卸载或热重载。 */
-  addBuiltinRoot(root: string): void {
-    if (!this.builtinRoots.includes(root)) this.builtinRoots.push(root)
-  }
+  constructor(private readonly roots: string[], private readonly userRoot?: string, private readonly reservedIds: ReadonlySet<string> = new Set()) {}
 
   issues(): PluginIssue[] { return [...this.problems] }
   sourceOf(id: string): string | undefined { return this.sources[id] }
-  /** 内置模块：随应用分发，不可卸载、不可从源码同步。 */
-  isBuiltin(id: string): boolean { return this.builtinIds.has(id) }
 
   private sourcesFile(): string | null { return this.userRoot ? path.join(this.userRoot, SOURCES_FILE) : null }
 
@@ -52,18 +43,15 @@ export class PluginManager {
   discover(): PluginDescriptor[] {
     this.plugins.clear()
     this.problems.length = 0
-    this.builtinIds.clear()
     this.loadSources()
-    // 内置模块先扫描：用户目录里同 id 的插件无法覆盖它们。
-    for (const [root, builtin] of this.scanRoots()) {
+    for (const root of this.roots) {
       if (!fs.existsSync(root)) continue
       for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
         if (!entry.isDirectory() || entry.name.startsWith('.')) continue
         const pluginRoot = path.join(root, entry.name)
         const manifestPath = path.join(pluginRoot, 'plugin.json')
         if (!fs.existsSync(manifestPath)) {
-          // 内置目录里的非模块子目录不报错
-          if (!builtin) this.problems.push({ directory: pluginRoot, reason: '目录里没有 plugin.json' })
+          this.problems.push({ directory: pluginRoot, reason: '目录里没有 plugin.json' })
           continue
         }
         let manifest: PluginManifest
@@ -76,6 +64,7 @@ export class PluginManager {
         const id = typeof manifest.id === 'string' ? manifest.id : undefined
         const fail = (reason: string): void => { this.problems.push({ directory: pluginRoot, id, reason }) }
         if (!ID_PATTERN.test(id ?? '')) { fail('id 必须是 [a-z0-9_-]{1,64}（小写字母/数字/下划线/短横线）'); continue }
+        if (this.reservedIds.has(id!)) { fail('此 id 已由系统功能使用'); continue }
         if (!manifest.name) { fail('缺少 name'); continue }
         if (!VERSION_PATTERN.test(String(manifest.version ?? ''))) { fail('version 必须是 x.y 或 x.y.z'); continue }
         if (typeof manifest.entry !== 'string' || !manifest.entry) { fail('缺少 entry（包内相对 .html 路径）'); continue }
@@ -84,9 +73,8 @@ export class PluginManager {
         const entryPath = path.resolve(pluginRoot, manifest.entry)
         if (!entryPath.startsWith(rootPath + path.sep)) { fail('entry 指到了插件目录之外'); continue }
         if (!fs.existsSync(entryPath)) { fail(`入口文件不存在：${manifest.entry}`); continue }
-        if (this.plugins.has(id!)) { fail(builtin ? `内置模块 id 重复：${id}` : `id 与已加载的插件重复：${id}`); continue }
+        if (this.plugins.has(id!)) { fail(`id 与已加载的插件重复：${id}`); continue }
         this.plugins.set(id!, { manifest, rootDir: pluginRoot, entryPath })
-        if (builtin) this.builtinIds.add(id!)
       }
     }
     // 清掉已卸载插件的源码登记
@@ -95,10 +83,6 @@ export class PluginManager {
     for (const key of Object.keys(this.sources)) if (!installed.has(key) && !fs.existsSync(this.sources[key])) { delete this.sources[key]; changed = true }
     if (changed) this.saveSources()
     return this.list()
-  }
-
-  private scanRoots(): Array<[string, boolean]> {
-    return [...this.builtinRoots.map(root => [root, true] as [string, boolean]), ...this.roots.map(root => [root, false] as [string, boolean])]
   }
 
   list(): PluginDescriptor[] { return [...this.plugins.values()].sort((a, b) => a.manifest.name.localeCompare(b.manifest.name, 'zh-CN')) }
@@ -115,6 +99,7 @@ export class PluginManager {
     try { manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as PluginManifest }
     catch (error) { throw new Error(`plugin.json 不是合法 JSON：${String(error)}`) }
     if (!ID_PATTERN.test(String(manifest.id ?? ''))) throw new Error('plugin.json 的 id 不合法（[a-z0-9_-]{1,64}）')
+    if (this.reservedIds.has(manifest.id)) throw new Error('此 id 已由系统功能使用')
     if (!manifest.name || !VERSION_PATTERN.test(String(manifest.version ?? '')) || !manifest.entry) throw new Error('plugin.json 缺少 name / version / entry')
     const destination = path.join(this.userRoot, manifest.id)
     fs.mkdirSync(this.userRoot, { recursive: true })
@@ -132,7 +117,6 @@ export class PluginManager {
 
   /** 把开发目录的最新内容同步回已安装目录（热重载用）。 */
   syncFromSource(id: string): boolean {
-    if (this.builtinIds.has(id)) return false
     const source = this.sources[id]
     if (!source || !this.userRoot) return false
     const destination = path.join(this.userRoot, id)
@@ -142,7 +126,6 @@ export class PluginManager {
   }
 
   uninstall(id: string): void {
-    if (this.builtinIds.has(id)) throw new Error('内置模块不能卸载')
     const plugin = this.plugins.get(id)
     if (plugin && this.userRoot && path.resolve(plugin.rootDir).startsWith(path.resolve(this.userRoot) + path.sep)) {
       fs.rmSync(plugin.rootDir, { recursive: true, force: true })

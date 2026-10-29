@@ -18,7 +18,8 @@ import type { NearbyDevice, TransferFile, TransferSession, TransferSnapshot, Tra
 const GROUP = '224.0.0.167'
 const DEFAULT_PORT = 53317
 const API = '/api/localsend/v2'
-const MAX_FILES = 200
+const MAX_FILES = 1000
+const MAX_REQUEST_BYTES = 8 * 1024 * 1024
 const MAX_TEXT = 64 * 1024
 type Source = TransferFile & { path?: string }
 const isText = (file: TransferFile) => file.kind === 'text'
@@ -61,11 +62,15 @@ interface Active {
   tokens: Map<string, string>
   received: Set<string>
   uploading: Set<string>
+  responses: Set<ServerResponse>
   controller: AbortController
   pending?: Pending
   paths: string[]
+  locations: Map<string, string>
   directory: string
   activityAt: number
+  retrySources?: Source[]
+  speedSample?: { at: number; bytes: number }
 }
 interface Options {
   baseDir: string
@@ -86,6 +91,7 @@ export class LocalSendService extends EventEmitter {
   private devices = new Map<string, NearbyDevice>()
   private active = new Map<string, Active>()
   private draft: Source[] = []
+  private draftNotice?: string
   private state: TransferSnapshot['status'] = 'stopped'
   private error?: string
   private port: number
@@ -110,7 +116,8 @@ export class LocalSendService extends EventEmitter {
       saveDirectory: this.saveDirectory, status: this.state, error: this.error,
       devices: [...this.devices.values()].filter(d => Date.now() - d.lastSeen < 75000).sort((a, b) => a.alias.localeCompare(b.alias)),
       draft: this.draft.map(({ path: _path, ...file }) => ({ ...file })),
-      sessions: [...this.active.values()].map(a => ({ ...a.record, files: a.record.files.map(f => ({ ...f })) })).reverse(),
+      draftNotice: this.draftNotice,
+      sessions: [...this.active.values()].map(a => ({ ...a.record, canRetry: a.record.direction === 'outgoing' && TERMINAL.has(a.record.state) && a.record.state !== 'completed' && !!a.retrySources, files: a.record.files.map(f => ({ ...f, canLocate: a.locations.has(f.id) })) })).reverse(),
     }
   }
 
@@ -154,7 +161,15 @@ export class LocalSendService extends EventEmitter {
           const history = JSON.parse(await fs.readFile(path.join(this.options.baseDir, 'history.json'), 'utf8'))
           for (const record of (history.version === 1 && Array.isArray(history.records) ? history.records : []).slice(0, 50).reverse()) {
             if (!TERMINAL.has(record.state) || typeof record.id !== 'string' || !Array.isArray(record.files)) continue
-            this.active.set(record.id, { record, host: '', fingerprint: '', tokens: new Map(), received: new Set(), uploading: new Set(), controller: new AbortController(), paths: [], directory: '', activityAt: 0 })
+            const { locations: storedLocations, ...cleanRecord } = record
+            const locations = new Map<string, string>()
+            if (storedLocations && typeof storedLocations === 'object' && !Array.isArray(storedLocations)) {
+              for (const file of cleanRecord.files) {
+                const value = storedLocations[file.id]
+                if (typeof value === 'string' && path.isAbsolute(value)) locations.set(file.id, value)
+              }
+            }
+            this.active.set(record.id, { record: cleanRecord, host: '', fingerprint: '', tokens: new Map(), received: new Set(), uploading: new Set(), responses: new Set(), controller: new AbortController(), paths: [], locations, directory: '', activityAt: 0 })
           }
         } catch { /* 首次启动或损坏的历史不影响收发。 */ }
       }
@@ -289,7 +304,7 @@ export class LocalSendService extends EventEmitter {
   }
 
   async selectFiles(paths: string[], append = false, names?: string[]): Promise<void> {
-    if (!Array.isArray(paths) || paths.length === 0 || paths.length > MAX_FILES || paths.some(p => typeof p !== 'string' || !path.isAbsolute(p))) throw new Error('请选择 1–200 个本地文件')
+    if (!Array.isArray(paths) || paths.length === 0 || paths.length > MAX_FILES || paths.some(p => typeof p !== 'string' || !path.isAbsolute(p))) throw new Error(`请选择 1–${MAX_FILES} 个本地文件`)
     if (names && names.length !== paths.length) throw new Error('文件清单无效')
     const files: Source[] = []
     for (let index = 0; index < paths.length; index++) {
@@ -307,20 +322,22 @@ export class LocalSendService extends EventEmitter {
       seen.add(key)
       return true
     })
-    if (unique.length > MAX_FILES) throw new Error('最多选择 200 个文件')
+    if (unique.length > MAX_FILES) throw new Error(`最多选择 ${MAX_FILES} 个文件`)
     this.draft = unique
+    this.draftNotice = undefined
     this.changed()
   }
 
   async selectFolders(folders: string[]): Promise<void> {
-    if (!Array.isArray(folders) || !folders.length || folders.length > MAX_FILES || folders.some(p => typeof p !== 'string' || !path.isAbsolute(p))) throw new Error('请选择 1–200 个文件夹')
-    const { files, names } = await this.collectFolderFiles(folders)
-    if (!files.length) throw new Error('文件夹里没有可传输的文件')
+    if (!Array.isArray(folders) || !folders.length || folders.length > MAX_FILES || folders.some(p => typeof p !== 'string' || !path.isAbsolute(p))) throw new Error(`请选择 1–${MAX_FILES} 个文件夹`)
+    const { files, names, emptyFolders } = await this.collectFolderFiles(folders)
+    if (!files.length) throw new Error('文件夹里没有可传输的文件；空文件夹不会传输')
     await this.selectFiles(files, true, names)
+    if (emptyFolders) { this.draftNotice = `已跳过 ${emptyFolders} 个空文件夹；空文件夹不会传输`; this.changed() }
   }
 
   async selectDroppedPaths(paths: string[]): Promise<void> {
-    if (!Array.isArray(paths) || !paths.length || paths.length > MAX_FILES || paths.some(p => typeof p !== 'string' || !path.isAbsolute(p))) throw new Error('请拖入 1–200 个文件或文件夹')
+    if (!Array.isArray(paths) || !paths.length || paths.length > MAX_FILES || paths.some(p => typeof p !== 'string' || !path.isAbsolute(p))) throw new Error(`请拖入 1–${MAX_FILES} 个文件或文件夹`)
     const files: string[] = []
     const names: string[] = []
     const folders: string[] = []
@@ -331,40 +348,46 @@ export class LocalSendService extends EventEmitter {
       else if (stat.isFile()) { files.push(item); names.push(safeFileName(path.basename(item))) }
       else throw new Error('只能拖入普通文件或文件夹')
     }
+    let emptyFolders = 0
     if (folders.length) {
       const nested = await this.collectFolderFiles(folders)
+      emptyFolders = nested.emptyFolders
       files.push(...nested.files)
       names.push(...nested.names)
     }
-    if (!files.length) throw new Error('文件夹里没有可传输的文件')
+    if (!files.length) throw new Error('文件夹里没有可传输的文件；空文件夹不会传输')
     await this.selectFiles(files, true, names)
+    if (emptyFolders) { this.draftNotice = `已跳过 ${emptyFolders} 个空文件夹；空文件夹不会传输`; this.changed() }
   }
 
-  private async collectFolderFiles(folders: string[]): Promise<{ files: string[]; names: string[] }> {
+  private async collectFolderFiles(folders: string[]): Promise<{ files: string[]; names: string[]; emptyFolders: number }> {
     const files: string[] = []
     const names: string[] = []
+    let emptyFolders = 0
     for (const folder of [...new Set(folders)]) {
       const root = await fs.lstat(folder)
       if (!root.isDirectory() || root.isSymbolicLink()) throw new Error('请选择普通文件夹')
       const folderName = safeFileName(path.basename(folder))
       const walk = async (current: string, relative: string): Promise<void> => {
-        for (const entry of await fs.readdir(current, { withFileTypes: true })) {
+        const entries = await fs.readdir(current, { withFileTypes: true })
+        if (!entries.length) emptyFolders++
+        for (const entry of entries) {
           const fullPath = path.join(current, entry.name)
           const childRelative = relative ? `${relative}/${entry.name}` : entry.name
           if (entry.isDirectory()) await walk(fullPath, childRelative)
           else if (entry.isFile()) {
             files.push(fullPath)
             names.push(safeRelativeFileName(`${folderName}/${childRelative.replace(/\\/g, '/')}`))
-            if (files.length > MAX_FILES) throw new Error('文件夹内文件过多，最多传输 200 个文件')
+            if (files.length > MAX_FILES) throw new Error(`文件夹内文件过多，最多传输 ${MAX_FILES} 个文件`)
           }
         }
       }
       await walk(folder, '')
     }
-    return { files, names }
+    return { files, names, emptyFolders }
   }
 
-  clearDraft(): void { this.draft = []; this.changed() }
+  clearDraft(): void { this.draft = []; this.draftNotice = undefined; this.changed() }
 
   async sendText(deviceId: string, text: string, pin?: string): Promise<string> {
     if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text, 'utf8') > MAX_TEXT) throw new Error('请输入文本，最多 64 KB')
@@ -379,7 +402,16 @@ export class LocalSendService extends EventEmitter {
     return texts.join('\n\n')
   }
 
-  removeDraftFile(id: string): void { this.draft = this.draft.filter(file => file.id !== id); this.changed() }
+  async locationFor(sessionId: string, fileId?: string): Promise<string> {
+    const active = this.active.get(sessionId)
+    const location = fileId ? active?.locations.get(fileId) : active?.locations.values().next().value
+    if (!location) throw new Error('此记录没有可定位的文件')
+    try { if (!(await fs.stat(location)).isFile()) throw new Error() }
+    catch { throw new Error('文件已移动或删除，无法定位') }
+    return location
+  }
+
+  removeDraftFile(id: string): void { this.draft = this.draft.filter(file => file.id !== id); if (!this.draft.length) this.draftNotice = undefined; this.changed() }
 
   async configure(values: { alias?: string; saveDirectory?: string }): Promise<void> {
     if (values.alias !== undefined) {
@@ -401,27 +433,68 @@ export class LocalSendService extends EventEmitter {
     for (const [id, session] of this.active) if (this.active.size >= 50 && TERMINAL.has(session.record.state)) this.active.delete(id)
     const record: TransferSession = { id: randomUUID(), direction, peer: peer.alias, deviceId: peer.id, files,
       state: 'waiting', bytes: 0, total: files.reduce((sum, f) => sum + f.size, 0), createdAt: Date.now() }
-    const active: Active = { record, host: peer.host, fingerprint: peer.fingerprint, tokens: new Map(), received: new Set(), uploading: new Set(), controller: new AbortController(), paths: [], directory: this.saveDirectory, activityAt: Date.now() }
+    const active: Active = { record, host: peer.host, fingerprint: peer.fingerprint, tokens: new Map(), received: new Set(), uploading: new Set(), responses: new Set(), controller: new AbortController(), paths: [], locations: new Map(), directory: this.saveDirectory, activityAt: Date.now() }
     this.active.set(record.id, active)
     return active
   }
 
   private update(active: Active, state: TransferState, error?: string): void {
     if (TERMINAL.has(active.record.state)) return
+    if (state === 'transferring' && active.record.state !== 'transferring') active.speedSample = { at: Date.now(), bytes: active.record.bytes }
     active.record.state = state
     active.record.error = error
     if (TERMINAL.has(state)) {
       if (active.pending) { clearTimeout(active.pending.timer); this.json(active.pending.response, state === 'rejected' ? 403 : 409, { message: error || state }); active.pending = undefined }
-      if (state !== 'completed') active.controller.abort()
+      if (state !== 'completed') {
+        const responses = state === 'cancelled' && active.record.direction === 'incoming'
+          ? [...active.responses].filter(response => !response.destroyed && !response.headersSent && !response.writableEnded)
+          : []
+        if (responses.length) {
+          // Deliver a cancellation response before aborting the upload socket.
+          // Abort remains bounded even if a peer stops reading the response.
+          let remaining = responses.length
+          const abort = () => active.controller.abort()
+          const timer = setTimeout(abort, 250)
+          timer.unref()
+          for (const response of responses) {
+            let finished = false
+            const done = () => { if (finished) return; finished = true; if (--remaining === 0) { clearTimeout(timer); abort() } }
+            response.once('finish', done)
+            response.once('close', done)
+            this.json(response, 409, { message: '接收方已取消' })
+          }
+        } else active.controller.abort()
+      }
+      if (state === 'completed' && active.retrySources) {
+        const sentIds = new Set(active.retrySources.map(file => file.id))
+        if (this.draft.length && this.draft.length === sentIds.size && this.draft.every(file => sentIds.has(file.id))) { this.draft = []; this.draftNotice = undefined }
+        active.retrySources = undefined
+      }
+      active.record.currentFile = undefined
+      active.record.speedBytesPerSecond = undefined
+      active.record.speedUpdatedAt = undefined
       this.persist()
     }
     this.changed()
   }
 
+  private sampleSpeed(active: Active): void {
+    const now = Date.now()
+    const sample = active.speedSample
+    if (!sample) { active.speedSample = { at: now, bytes: active.record.bytes }; return }
+    const elapsed = now - sample.at
+    if (elapsed < 1000) return
+    const rate = Math.max(0, (active.record.bytes - sample.bytes) * 1000 / elapsed)
+    const previous = active.record.speedBytesPerSecond
+    active.record.speedBytesPerSecond = previous === undefined ? rate : previous * 0.7 + rate * 0.3
+    active.record.speedUpdatedAt = now
+    active.speedSample = { at: now, bytes: active.record.bytes }
+  }
+
   private persist(): void {
-    // 仅保存传输摘要；不保存凭据、绝对源路径或临时授权。
+    // 保存文件位置以支持历史定位；不保存正文、凭据或临时授权。
     const records = this.snapshot().sessions.filter(s => TERMINAL.has(s.state)).slice(0, 50)
-      .map(s => ({ ...s, files: s.files.map(({ preview: _preview, text: _text, ...f }) => f) }))
+      .map(s => ({ ...s, files: s.files.map(({ preview: _preview, text: _text, ...f }) => f), locations: Object.fromEntries(this.active.get(s.id)?.locations ?? []) }))
     this.historyWrite = this.historyWrite.then(() => fs.writeFile(path.join(this.options.baseDir, 'history.json.tmp'), JSON.stringify({ version: 1, records })))
       .then(() => fs.rename(path.join(this.options.baseDir, 'history.json.tmp'), path.join(this.options.baseDir, 'history.json'))).catch(() => {})
   }
@@ -435,15 +508,26 @@ export class LocalSendService extends EventEmitter {
   }
 
   async send(deviceId: string, pin?: string, text?: string): Promise<string> {
+    const sourceFiles: Source[] = text === undefined ? this.draft.map(f => ({ ...f })) : [{ id: randomUUID(), fileName: '文本.txt', size: Buffer.byteLength(text, 'utf8'), fileType: 'text/plain', kind: 'text', preview: text }]
+    return this.startSend(deviceId, sourceFiles, pin)
+  }
+
+  async retrySend(id: string, pin?: string): Promise<string> {
+    const previous = this.active.get(id)
+    if (!previous || previous.record.direction !== 'outgoing' || !TERMINAL.has(previous.record.state) || previous.record.state === 'completed' || !previous.retrySources) throw new Error('原始内容已不可用，请重新选择后发送')
+    return this.startSend(previous.record.deviceId, previous.retrySources.map(file => ({ ...file })), pin)
+  }
+
+  private async startSend(deviceId: string, sourceFiles: Source[], pin?: string): Promise<string> {
     const peer = this.devices.get(deviceId)
     if (this.state !== 'running') throw new Error('文件传输服务未就绪')
     if (!peer || Date.now() - peer.lastSeen > 75000) throw new Error('设备已离线，请刷新或重新连接')
-    if (text === undefined && !this.draft.length) throw new Error('请先添加文件或文本')
+    if (!sourceFiles.length) throw new Error('请先添加文件或文本')
     if ([...this.active.values()].some(a => a.record.direction === 'outgoing' && !TERMINAL.has(a.record.state))) throw new Error('已有发送任务，请等待完成或取消')
     if (pin && !/^\d{4,12}$/.test(pin)) throw new Error('接收码应为 4–12 位数字')
-    const sourceFiles: Source[] = text === undefined ? this.draft.map(f => ({ ...f })) : [{ id: randomUUID(), fileName: '文本.txt', size: Buffer.byteLength(text, 'utf8'), fileType: 'text/plain', kind: 'text', preview: text }]
     const active = this.newSession('outgoing', peer, sourceFiles.map(({ path: _path, ...f }) => f))
-    if (text === undefined) this.draft = []
+    for (const source of sourceFiles) if (source.path) active.locations.set(source.id, source.path)
+    active.retrySources = sourceFiles
     this.changed()
     void this.sendInternal(active, peer, sourceFiles, pin).catch(error => {
       this.update(active, 'failed', message(error))
@@ -453,12 +537,17 @@ export class LocalSendService extends EventEmitter {
 
   private async sendInternal(active: Active, peer: NearbyDevice, sources: Source[], pin?: string): Promise<void> {
     const signal = active.controller.signal
+    active.record.preparedBytes = 0
     this.update(active, 'verifying')
     for (const source of sources) {
       const hash = createHash('sha256')
       if (signal.aborted) return
       const stream = source.path ? createReadStream(source.path, { signal }) : Readable.from([Buffer.from(source.preview!, 'utf8')])
-      for await (const chunk of stream) hash.update(chunk)
+      for await (const chunk of stream) {
+        hash.update(chunk)
+        active.record.preparedBytes += chunk.length
+        this.changed()
+      }
       if (signal.aborted) return
       if (source.path && (await fs.stat(source.path)).size !== source.size) throw new Error('源文件已变化，请重新添加')
       source.sha256 = hash.digest('hex')
@@ -474,7 +563,7 @@ export class LocalSendService extends EventEmitter {
       this.update(active, 'completed')
       return
     }
-    if (reply.status === 401) throw new Error('对方需要接收码，请重新添加文件并填写接收码后发送')
+    if (reply.status === 401) throw new Error('对方需要接收码，请填写接收码后重新发送')
     if (reply.status !== 200 || typeof reply.body.sessionId !== 'string' || !reply.body.files || typeof reply.body.files !== 'object') throw new Error(`对方未接受请求（HTTP ${reply.status}），请重试`)
     const remoteId = reply.body.sessionId
     const accepted = reply.body.files as Record<string, unknown>
@@ -489,6 +578,8 @@ export class LocalSendService extends EventEmitter {
       this.update(active, 'transferring')
       for (const source of selected) {
         if (signal.aborted) return
+        active.record.currentFile = source.fileName
+        this.changed()
         const query = new URLSearchParams({ sessionId: remoteId, fileId: source.id, token: String(accepted[source.id]) })
         await this.upload(peer, `/upload?${query}`, source, active)
       }
@@ -555,6 +646,7 @@ export class LocalSendService extends EventEmitter {
       })
       const total = files.reduce((sum, f) => sum + f.size, 0)
       if (!Number.isSafeInteger(total)) throw new Error('文件总大小超出范围')
+      await fs.mkdir(this.saveDirectory, { recursive: true })
       const disk = await fs.statfs(this.saveDirectory)
       if (disk.bavail * disk.bsize < total) throw new Error('接收磁盘空间不足')
       // statfs 是异步的，需要再次检查，防止并发请求在检查期间同时占用接收槽。
@@ -594,6 +686,8 @@ export class LocalSendService extends EventEmitter {
     if (active.received.has(id) || active.uploading.has(id)) { this.json(res, 409, {}); req.resume(); return }
     if (req.headers['content-length'] !== undefined && Number(req.headers['content-length']) !== file.size) { this.json(res, 400, {}); req.resume(); return }
     active.uploading.add(id)
+    active.responses.add(res)
+    active.record.currentFile = file.fileName
     const directory = active.directory
     active.activityAt = Date.now()
     const temporary = path.join(directory, `.island-${active.record.id}-${randomUUID()}.part`)
@@ -606,25 +700,28 @@ export class LocalSendService extends EventEmitter {
       hash.update(chunk)
       active.activityAt = Date.now()
       active.record.bytes += chunk.length
+      this.sampleSpeed(active)
       this.changed()
       callback(null, chunk)
     } })
     req.setTimeout(30000, () => req.destroy(new Error('接收超时')))
     try {
+      if (!isText(file)) await fs.mkdir(directory, { recursive: true })
       const target = isText(file) ? new Writable({ write(chunk: Buffer, _encoding, callback) { textChunks.push(Buffer.from(chunk)); callback() } }) : createWriteStream(temporary, { flags: 'wx' })
       await pipeline(req, meter, target, { signal: active.controller.signal })
       if (bytes !== file.size) throw new Error('文件未完整接收')
       const actual = hash.digest('hex')
       if (file.sha256 && actual.toLowerCase() !== file.sha256.toLowerCase()) throw new Error('文件 SHA-256 校验失败')
-      if (active.controller.signal.aborted) throw new Error('传输已取消')
+      if (active.controller.signal.aborted || TERMINAL.has(active.record.state)) throw new Error('传输已取消')
       if (isText(file)) file.text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(textChunks))
       else {
         const destination = await this.publish(temporary, directory, file.fileName)
-        if (active.controller.signal.aborted) {
+        if (active.controller.signal.aborted || TERMINAL.has(active.record.state)) {
           await fs.unlink(destination).catch(() => {})
           throw new Error('传输已取消')
         }
         active.paths.push(destination)
+        active.locations.set(file.id, destination)
       }
       active.received.add(id)
       active.uploading.delete(id)
@@ -636,6 +733,8 @@ export class LocalSendService extends EventEmitter {
       await fs.unlink(temporary).catch(() => {})
       if (!res.destroyed && !res.headersSent) this.json(res, 422, { message: message(error) })
       this.update(active, 'failed', message(error))
+    } finally {
+      active.responses.delete(res)
     }
   }
 
@@ -711,9 +810,17 @@ export class LocalSendService extends EventEmitter {
         rejectUnauthorized: false, key: this.identity?.private, cert: this.identity?.cert, signal,
         headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': file.size },
       }, response => {
+        if (response.statusCode !== 200) {
+          const error = new Error(response.statusCode === 403 || response.statusCode === 409 ? '对方已取消或拒绝接收' : `文件发送失败（HTTP ${response.statusCode}）`)
+          this.update(active, 'failed', error.message)
+          response.destroy()
+          request.destroy(error)
+          reject(error)
+          return
+        }
         response.resume()
         response.on('error', reject)
-        response.on('end', () => response.statusCode === 200 ? resolve() : reject(new Error(`文件发送失败（HTTP ${response.statusCode}）`)))
+        response.on('end', () => resolve())
       })
       if (peer.protocol === 'https') request.on('socket', socket => (socket as TLSSocket).once('secureConnect', () => {
         if (digest((socket as TLSSocket).getPeerCertificate().fingerprint256 || '') !== digest(peer.fingerprint)) request.destroy(new Error('设备证书不匹配'))
@@ -721,7 +828,9 @@ export class LocalSendService extends EventEmitter {
       request.setTimeout(30000, () => request.destroy(new Error('文件传输超时')))
       request.on('error', reject)
       const meter = new Transform({ transform: (chunk: Buffer, _encoding, callback) => {
+        if (signal.aborted || TERMINAL.has(active.record.state)) { callback(new Error('传输已结束')); return }
         active.record.bytes += chunk.length
+        this.sampleSpeed(active)
         this.changed()
         callback(null, chunk)
       } })
@@ -733,7 +842,7 @@ export class LocalSendService extends EventEmitter {
     req.setTimeout(15000, () => req.destroy())
     const chunks: Buffer[] = []
     let size = 0
-    for await (const chunk of req) { size += chunk.length; if (size > 524288) throw new Error('请求过大'); chunks.push(chunk) }
+    for await (const chunk of req) { size += chunk.length; if (size > MAX_REQUEST_BYTES) throw new Error('请求过大'); chunks.push(chunk) }
     const text = Buffer.concat(chunks).toString('utf8')
     if (!text) return {}
     const parsed = JSON.parse(text)

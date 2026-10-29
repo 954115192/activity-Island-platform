@@ -185,6 +185,15 @@ function tick(now: number) {
 }
 
 function applyLayout(next: Layout) {
+  // State-only updates must not restart the spring or turn a collapse into a
+  // micro expansion while the shell is still travelling towards the same size.
+  if (hasReceivedLayout && next.width === target.width && next.height === target.height) {
+    target.top = next.top
+    current.top = next.top
+    layoutState = next
+    renderShell()
+    return
+  }
   if (!hasReceivedLayout) {
     hasReceivedLayout = true
     current = { width: next.width, height: next.height, top: next.top }

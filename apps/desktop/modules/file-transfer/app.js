@@ -25,9 +25,10 @@
   };
   const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.file}</svg>`;
   document.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); });
-  const states = { waiting:'等待对方接受', transferring:'传输中', verifying:'正在校验文件', completed:'传输完成', rejected:'对方已拒绝', cancelled:'已取消', failed:'传输失败' };
+  const states = { waiting:'等待对方接受', transferring:'传输中', verifying:'正在准备文件', completed:'传输完成', rejected:'对方已拒绝', cancelled:'已取消', failed:'传输失败' };
   const terminal = new Set(['completed','rejected','cancelled','failed']);
-  let snapshot, page = 'send', mode = 'files', focusSession, busy = false, sendingText;
+  let snapshot, page = 'send', mode = 'files', focusSession, busy = false, pendingText;
+  let detailOrigin = null;
   const encoder = new TextEncoder();
   const isText = file => file.kind === 'text';
   const hasText = session => session.files.some(isText);
@@ -52,6 +53,8 @@
   }
   function notice(text) { $('notice').textContent = text; $('notice').hidden = !text; }
   function go(next, id) {
+    if (next === 'transfer') detailOrigin = page === 'history' ? 'history' : null;
+    else detailOrigin = null;
     page = next;
     if (id) focusSession = id;
     if (snapshot) render(snapshot);
@@ -66,30 +69,52 @@
       return true;
     } catch { notice('暂时无法连接传输服务，请重新打开文件传输'); return false; }
   }
-  function fileRows(files, editable = false) {
-    return files.map(file => `<div class="file-row"><span class="file-badge">${icon('file')}</span><div class="file-info"><span class="file-name" title="${esc(file.fileName)}">${esc(file.fileName)}</span><span class="file-size">${size(file.size)}</span></div>${editable ? `<button class="icon-button" data-action="remove" data-id="${esc(file.id)}" aria-label="移除 ${esc(file.fileName)}" title="移除文件">${icon('close')}</button>` : ''}</div>`).join('');
+  function fileRows(files, editable = false, sessionId = null) {
+    return files.map(file => `<div class="file-row"><span class="file-badge">${icon('file')}</span><div class="file-info"><span class="file-name" title="${esc(file.fileName)}">${esc(file.fileName)}</span><span class="file-size">${size(file.size)}</span></div>${editable ? `<button class="icon-button" data-action="remove" data-id="${esc(file.id)}" aria-label="移除 ${esc(file.fileName)}" title="移除文件">${icon('close')}</button>` : sessionId && file.canLocate ? `<button class="icon-button" data-action="reveal-file" data-id="${esc(sessionId)}" data-file-id="${esc(file.id)}" aria-label="定位 ${esc(file.fileName)}" title="在文件夹中定位">${icon('folder')}</button>` : ''}</div>`).join('');
   }
-  function textCards(files) {
-    return files.map(file => isText(file) ? `<article class="text-preview"><div class="text-preview-label">${icon('text')}文本${file.text === undefined && file.preview !== undefined && encoder.encode(file.preview).length < file.size ? ' · 部分预览' : ''}</div><pre>${esc(file.text ?? file.preview ?? '本次文本内容未保存，请让对方重新发送')}</pre></article>` : fileRows([file])).join('');
+  function textCards(files, sessionId) {
+    return files.map(file => isText(file) ? `<article class="text-preview"><div class="text-preview-label">${icon('text')}文本${file.text === undefined && file.preview !== undefined && encoder.encode(file.preview).length < file.size ? ' · 部分预览' : ''}</div><pre>${esc(file.text ?? file.preview ?? '本次文本内容未保存，请让对方重新发送')}</pre></article>` : fileRows([file], false, sessionId)).join('');
   }
+  const progressBytes = session => session.state === 'verifying' ? (session.preparedBytes || 0) : session.bytes;
+  function historyRow(session) {
+    const text = allText(session);
+    const direction = session.direction === 'incoming' ? '接收' : '发送';
+    const summary = text ? `文本${fullText(session) ? '' : ' · 正文未保存'}` : `${session.files.length} 个文件`;
+    const date = new Date(session.createdAt).toLocaleString('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false });
+    const locate = session.files.some(file => file.canLocate);
+    return `<article class="task"><span class="task-icon ${esc(session.direction)}" aria-label="${direction}">${icon(session.direction === 'incoming' ? 'receive' : 'send')}</span><div class="task-main"><div class="task-head"><strong title="${esc(session.peer)}">${direction} · ${esc(session.peer)}</strong><span class="task-state ${esc(session.state)}">${esc(states[session.state] || session.state)}</span></div><div class="task-detail"><span>${esc(summary)} · ${size(session.total)}</span><time>${esc(date)}</time></div></div><div class="task-actions"><button class="task-detail-button" data-session="${esc(session.id)}">查看详情</button>${locate ? `<button class="task-location-button" data-action="reveal-file" data-id="${esc(session.id)}" aria-label="打开文件位置" title="打开文件位置">${icon('folder')}<span>打开文件位置</span></button>` : ''}</div></article>`;
+  }
+  const transferStats = session => {
+    if (session.state !== 'transferring') return '';
+    const rate = session.speedBytesPerSecond;
+    if (!rate || !session.speedUpdatedAt || Date.now() - session.speedUpdatedAt > 3000) return '正在计算速度…';
+    const remaining = Math.max(0, (session.total - session.bytes) / rate);
+    const eta = remaining < 60 ? '不足 1 分钟' : remaining < 3600 ? `约 ${Math.ceil(remaining / 60)} 分钟` : `约 ${Math.ceil(remaining / 3600)} 小时`;
+    return `${size(rate)}/s · 剩余 ${eta}`;
+  };
+  const progressText = (session, fraction) => `${size(progressBytes(session))} / ${size(session.total)} · ${fraction.toFixed(0)}%${session.state === 'verifying' ? ' · 正在计算校验值' : ''}`;
   function detail(session, offer) {
     const running = !terminal.has(session.state);
     const text = allText(session);
-    const fraction = session.total ? Math.min(100, session.bytes / session.total * 100) : (session.state === 'completed' ? 100 : 0);
+    const fraction = session.total ? Math.min(100, progressBytes(session) / session.total * 100) : (session.state === 'completed' ? 100 : 0);
     const state = session.state === 'rejected' && session.direction === 'incoming' ? '已拒绝接收' : states[session.state];
     const readyCopy = text && fullText(session);
-    return `<div class="transfer-detail" data-session-id="${esc(session.id)}" data-state="${esc(session.state)}" data-offer="${offer}"><div class="peer-heading"><span class="peer-symbol">${icon(text ? 'text' : session.direction === 'incoming' ? 'receive' : 'send')}</span><div><h2>${esc(session.peer)}</h2><p class="muted">${offer ? text ? '与你分享一段文本' : '想向你发送文件' : session.direction === 'incoming' ? text ? '分享给你的文本' : '发送给你的文件' : text ? '你分享的文本' : '你发送的文件'}</p></div></div><div class="transfer-summary"><span>${text ? '文本与链接' : `${session.files.length} 个文件`}</span><span>${size(session.total)}</span></div><div class="transfer-files">${textCards(session.files)}</div><div class="transfer-bottom">${offer ? `<p>${text ? '直接在岛上阅读，接受后可复制。' : `接受后保存到：${esc(snapshot.saveDirectory)}`}</p><div class="actions"><button data-action="reject" data-id="${esc(session.id)}">拒绝</button><button class="primary" data-action="${readyCopy ? 'accept-copy' : 'accept'}" data-id="${esc(session.id)}">${readyCopy ? '接受并复制' : '接受'}</button>${readyCopy && isLink(session) ? `<button data-action="accept-open" data-id="${esc(session.id)}">打开链接</button>` : ''}</div>` : `<div class="result-label ${esc(session.state)}">${esc(state)}</div>${running ? `<p class="transfer-progress-copy">${session.state === 'waiting' ? '等待对方轻点接受，可收起灵动岛等待。' : `${size(session.bytes)} / ${size(session.total)} · ${fraction.toFixed(0)}%`}</p>${session.state !== 'waiting' ? `<progress class="transfer-progress" max="100" value="${fraction}" aria-label="传输进度"></progress>` : ''}` : ''}${session.error ? `<div class="error-text">${esc(session.error)}</div>` : ''}<div class="actions">${running ? `<button data-action="cancel" data-id="${esc(session.id)}">取消传输</button>` : `<button data-nav="${session.direction === 'outgoing' ? 'send' : 'receive'}">${session.direction === 'outgoing' ? '继续分享' : '返回'}</button>${session.state === 'completed' && text && readyCopy ? `<button class="primary" data-action="copy-text" data-id="${esc(session.id)}">${icon('copy')}复制文本</button>${isLink(session) ? `<button data-action="open-text" data-id="${esc(session.id)}">打开链接</button>` : ''}` : session.state === 'completed' && session.direction === 'incoming' && !text ? '<button class="primary" data-action="folder">打开文件夹</button>' : ''}`}</div>`}</div></div>`;
+    return `<div class="transfer-detail" data-session-id="${esc(session.id)}" data-state="${esc(session.state)}" data-offer="${offer}" data-origin="${detailOrigin || ''}">${detailOrigin === 'history' && running ? '<button class="history-back" data-nav="history" aria-label="返回传输记录">‹ 返回传输记录</button>' : ''}<div class="peer-heading"><span class="peer-symbol">${icon(text ? 'text' : session.direction === 'incoming' ? 'receive' : 'send')}</span><div><h2>${esc(session.peer)}</h2><p class="muted">${offer ? text ? '与你分享一段文本' : '想向你发送文件' : session.direction === 'incoming' ? text ? '分享给你的文本' : '发送给你的文件' : text ? '你分享的文本' : '你发送的文件'}</p></div></div><div class="transfer-summary"><span>${text ? '文本与链接' : `${session.files.length} 个文件`}</span><span>${size(session.total)}</span></div><div class="transfer-files">${textCards(session.files, session.id)}</div><div class="transfer-bottom">${offer ? `<p>${text ? '直接在岛上阅读，接受后可复制。' : `接受后保存到：${esc(snapshot.saveDirectory)}`}</p><div class="actions"><button data-action="reject" data-id="${esc(session.id)}">拒绝</button><button class="primary" data-action="${readyCopy ? 'accept-copy' : 'accept'}" data-id="${esc(session.id)}">${readyCopy ? '接受并复制' : '接受'}</button>${readyCopy && isLink(session) ? `<button data-action="accept-open" data-id="${esc(session.id)}">打开链接</button>` : ''}</div>` : `<div class="result-label ${esc(session.state)}">${esc(state)}</div>${running ? `<p class="transfer-progress-copy">${session.state === 'waiting' ? '等待对方轻点接受，可收起灵动岛等待。' : progressText(session, fraction)}</p>${session.state !== 'waiting' ? `<progress class="transfer-progress" max="100" value="${fraction}" aria-label="传输进度"></progress>${session.state === 'transferring' ? `<div class="transfer-metrics"><span class="transfer-current" title="${esc(session.currentFile || '')}">${esc(session.currentFile || '')}</span><span class="transfer-speed">${esc(transferStats(session))}</span></div>` : ''}` : ''}` : ''}${session.error ? `<div class="error-text">${esc(session.error)}</div>` : ''}${session.canRetry && session.error?.includes('接收码') ? '<label class="retry-pin-label">接收码<input id="retry-pin" type="password" inputmode="numeric" maxlength="12" autocomplete="off" placeholder="填写对方的接收码"></label>' : ''}<div class="actions">${running ? `<button data-action="cancel" data-id="${esc(session.id)}">取消传输</button>` : `<button data-nav="${detailOrigin === 'history' ? 'history' : session.direction === 'outgoing' ? 'send' : 'receive'}">${detailOrigin === 'history' ? '返回传输记录' : session.direction === 'outgoing' ? '继续分享' : '返回'}</button>${session.canRetry ? `<button class="primary" data-action="retry-send" data-id="${esc(session.id)}">重新发送</button>` : session.state === 'completed' && text && readyCopy ? `<button class="primary" data-action="copy-text" data-id="${esc(session.id)}">${icon('copy')}复制文本</button>${isLink(session) ? `<button data-action="open-text" data-id="${esc(session.id)}">打开链接</button>` : ''}` : session.state === 'completed' && session.direction === 'incoming' && !text ? '<button class="primary" data-action="folder">打开文件夹</button>' : ''}`}</div>`}</div></div>`;
   }
   function renderDetail(target, session, offer) {
     const current = target.firstElementChild;
     if (current?.classList.contains('transfer-detail') && current.dataset.sessionId === session.id
-      && current.dataset.state === session.state && current.dataset.offer === String(offer)) {
+      && current.dataset.state === session.state && current.dataset.offer === String(offer) && current.dataset.origin === (detailOrigin || '')) {
       if (!offer && !terminal.has(session.state) && session.state !== 'waiting') {
-        const fraction = session.total ? Math.min(100, session.bytes / session.total * 100) : 0;
+        const fraction = session.total ? Math.min(100, progressBytes(session) / session.total * 100) : 0;
         const copy = current.querySelector('.transfer-progress-copy');
-        if (copy) copy.textContent = `${size(session.bytes)} / ${size(session.total)} · ${fraction.toFixed(0)}%`;
+        if (copy) copy.textContent = progressText(session, fraction);
         const progress = current.querySelector('.transfer-progress');
         if (progress) progress.value = fraction;
+        const currentFile = current.querySelector('.transfer-current');
+        if (currentFile) { currentFile.textContent = session.currentFile || ''; currentFile.title = session.currentFile || ''; }
+        const speed = current.querySelector('.transfer-speed');
+        if (speed) speed.textContent = transferStats(session);
       }
       return;
     }
@@ -121,6 +146,7 @@
   }
   function openShareMode(request) {
     page = 'send';
+    detailOrigin = null;
     focusSession = undefined;
     mode = request.mode === 'text' ? 'text' : 'files';
     if (mode === 'text') $('message').value = typeof request.text === 'string' ? request.text : '';
@@ -135,11 +161,18 @@
     const active = value.sessions.filter(s => !terminal.has(s.state));
     const newOffer = offers.find(s => !knownSessions.has(s.id));
     const newTask = active.find(s => !knownSessions.has(s.id)) || (previous && value.sessions.find(s => !knownSessions.has(s.id)));
-    if (newOffer || newTask) { focusSession = (newOffer || newTask).id; page = 'transfer'; }
+    if (newOffer || newTask) { detailOrigin = null; focusSession = (newOffer || newTask).id; page = 'transfer'; }
     else if (previous && JSON.stringify(previous.draft) !== JSON.stringify(value.draft) && value.draft.length && !offers.length) { page = 'send'; mode = 'files'; }
-    if (sendingText && value.sessions.some(s => s.direction === 'outgoing' && hasText(s) && !knownSessions.has(s.id))) {
-      if ($('message').value === sendingText) $('message').value = '';
-      sendingText = undefined;
+    if (pendingText && !pendingText.id) {
+      const sent = value.sessions.find(s => s.direction === 'outgoing' && hasText(s) && !knownSessions.has(s.id));
+      if (sent) pendingText.id = sent.id;
+    }
+    if (pendingText?.id) {
+      const sent = value.sessions.find(s => s.id === pendingText.id);
+      if (sent && terminal.has(sent.state)) {
+        if (sent.state === 'completed' && $('message').value === pendingText.text) $('message').value = '';
+        pendingText = undefined;
+      }
     }
     knownSessions = new Set(value.sessions.map(s => s.id));
     const focused = value.sessions.find(s => s.id === focusSession);
@@ -167,17 +200,19 @@
     if (banner) { $('active-banner').dataset.id = banner.id; html('active-banner', `<span>${esc(banner.peer)} · ${banner.direction === 'incoming' && banner.state === 'waiting' ? '等待你接受' : esc(states[banner.state])}</span>${icon('arrow')}`); }
     $('clear').hidden = !value.draft.length;
     $('draft-heading').textContent = value.draft.length ? '已选择' : '选择文件';
-    html('draft', value.draft.length ? `<div class="selected-files"><div class="selection-summary"><strong>${value.draft.length} 个文件</strong><span class="muted">· ${size(value.draft.reduce((n,f) => n + f.size, 0))}</span><button class="text-button" data-action="choose">添加文件</button><button class="text-button" data-action="choose-folder">添加文件夹</button><button class="icon-button" data-action="clear" aria-label="清空文件">${icon('close')}</button></div><div class="file-list">${fileRows(value.draft, true)}</div></div>` : `<div class="empty-draft">${icon('file')}<div><h2>将文件或文件夹拖到灵动岛</h2><p class="muted">文件夹内的文件会保留原有目录结构</p><button data-action="choose">${icon('file')}选择文件</button><button data-action="choose-folder">${icon('folder')}选择文件夹</button><button data-mode="text">${icon('text')}发送文本</button></div></div>`);
+    if (!previous || JSON.stringify(previous.draft) !== JSON.stringify(value.draft) || previous.draftNotice !== value.draftNotice) html('draft', value.draft.length ? `<div class="selected-files"><div class="selection-summary"><strong>${value.draft.length} 个文件</strong><span class="muted">· ${size(value.draft.reduce((n,f) => n + f.size, 0))}</span><button class="text-button" data-action="choose">添加文件</button><button class="text-button" data-action="choose-folder">添加文件夹</button><button class="icon-button" data-action="clear" aria-label="清空文件">${icon('close')}</button></div>${value.draftNotice ? `<p class="draft-notice">${esc(value.draftNotice)}</p>` : ''}<div class="file-list">${fileRows(value.draft, true)}</div></div>` : `<div class="empty-draft">${icon('file')}<div><h2>将文件或文件夹拖到灵动岛</h2><p class="muted">保留文件目录结构 · 最多 1000 个文件 · 不传输空文件夹</p><button data-action="choose">${icon('file')}选择文件</button><button data-action="choose-folder">${icon('folder')}选择文件夹</button><button data-mode="text">${icon('text')}发送文本</button></div></div>`);
     $('device-count').textContent = value.devices.length || '';
-    html('devices', value.devices.length ? value.devices.map((device, index) => `<button class="device" style="--i:${Math.min(index, 8)}" data-device="${esc(device.id)}" title="${esc(device.host)} · ${esc(device.fingerprint)}">${icon(device.deviceType === 'mobile' ? 'mobile' : 'desktop')}<div><strong>${esc(device.alias)}</strong><small>${esc(device.deviceModel || device.host)}${device.protocol === 'http' ? ' · 未加密' : ''}</small></div></button>`).join('') : `<div class="empty">${icon('search')}未发现附近设备<p>在另一台设备上打开灵动岛或 LocalSend<br>并连接同一局域网</p></div>`);
+    html('devices', value.devices.length ? value.devices.map((device, index) => `<button class="device" style="--i:${Math.min(index, 8)}" data-device="${esc(device.id)}" title="${esc(device.host)} · ${esc(device.fingerprint)}">${icon(device.deviceType === 'mobile' ? 'mobile' : 'desktop')}<div><strong>${esc(device.alias)}</strong>${device.protocol === 'http' ? '<span class="device-security">未加密</span>' : ''}<small>${esc(device.deviceModel || device.host)}${device.protocol === 'http' ? ' · 未加密' : ''}</small></div></button>`).join('') : `<div class="empty">${icon('search')}未发现附近设备<p>在另一台设备上打开灵动岛或 LocalSend<br>并连接同一局域网，检查防火墙设置</p><button class="text-button" data-action="connect-open">通过 IP 连接</button></div>`);
     renderSendAvailability(value);
     $('incoming').hidden = !incoming;
     $('current-task').hidden = !!incoming;
     if (focused) renderDetail($(incoming ? 'incoming' : 'current-task'), focused, incoming);
     const finishedSessions = value.sessions.filter(s => terminal.has(s.state));
+    $('history-count').textContent = value.sessions.length ? value.sessions.length : '';
     $('clear-history').hidden = finishedSessions.length === 0;
     $('clear-history').disabled = finishedSessions.length === 0;
-    html('tasks', value.sessions.length ? value.sessions.map(s => `<div class="task"><div class="task-head">${icon(s.direction === 'incoming' ? 'receive' : 'send')}<strong>${s.direction === 'incoming' ? '来自' : '发送给'} ${esc(s.peer)}</strong><span class="task-state ${esc(s.state)}">${esc(states[s.state])}</span></div><div class="task-detail"><span>${allText(s) ? '文本' : `${s.files.length} 个文件`} · ${size(s.total)}</span><span>${esc(new Date(s.createdAt).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}))}</span></div><button class="text-button" data-session="${esc(s.id)}">查看详情</button></div>`).join('') : `<div class="empty">${icon('history')}还没有传输记录<p>发送或接收的文件会显示在这里</p></div>`);
+    html('tasks', value.sessions.length ? value.sessions.map(historyRow).join('') : `<div class="empty">${icon('history')}还没有传输记录<p>发送或接收的文件会显示在这里</p></div>`);
+    document.querySelector('.receive-id').dataset.status = value.status;
     $('identity').textContent = value.alias;
     $('settings-alias').textContent = value.alias;
     $('footer-alias').textContent = value.alias;
@@ -196,24 +231,38 @@
     if (button.dataset.device) {
       busy = true; render(snapshot);
       if (mode === 'text') {
-        sendingText = $('message').value;
-        const sent = await call('send-text', { id:button.dataset.device, text:sendingText, pin:$('pin').value.trim() });
-        if (sent && $('message').value === sendingText) $('message').value = '';
-        sendingText = undefined;
+        pendingText = { text: $('message').value, id: null };
+        const sent = await call('send-text', { id:button.dataset.device, text:pendingText.text, pin:$('pin').value.trim() });
+        if (!sent) pendingText = undefined;
       } else await call('send', { id:button.dataset.device, pin:$('pin').value.trim() });
       busy = false; render(snapshot); return;
     }
     if (button.dataset.action) {
       const action = button.dataset.action, id = button.dataset.id;
+      if (action === 'connect-open') { openConnect(); return; }
       if (action === 'choose' || action === 'choose-folder') { await call(action); return; }
       button.disabled = true;
       let ok;
-      if (action === 'accept-copy' || action === 'accept-open') { ok = await call('accept', id); if (ok) ok = await call(action === 'accept-copy' ? 'copy-text' : 'open-text', id); }
+      if (action === 'reveal-file') {
+        ok = await call('reveal-file', { id, fileId: button.dataset.fileId });
+      } else if (action === 'retry-send') {
+        const retryPin = $('retry-pin');
+        const pin = retryPin ? retryPin.value.trim() : $('pin').value.trim();
+        const selected = snapshot.sessions.find(s => s.id === id);
+        if (selected && allText(selected) && fullText(selected)) pendingText = { text: selected.files[0].text ?? selected.files[0].preview, id: null };
+        ok = await call('retry-send', { id, pin });
+        if (!ok) pendingText = undefined;
+      } else if (action === 'accept-copy' || action === 'accept-open') { ok = await call('accept', id); if (ok) ok = await call(action === 'accept-copy' ? 'copy-text' : 'open-text', id); }
       else ok = await call(action, id);
       if (ok && ['copy-text','accept-copy'].includes(action)) { $('copy-feedback').textContent = '已复制到剪贴板'; clearTimeout(copyTimer); copyTimer = setTimeout(() => { $('copy-feedback').textContent = ''; }, 2200); }
       button.disabled = false;
     }
   });
+  setInterval(() => {
+    if (page !== 'transfer' || !snapshot) return;
+    const session = snapshot.sessions.find(s => s.id === focusSession);
+    if (session?.state === 'transferring') { const el = document.querySelector('.transfer-detail .transfer-speed'); if (el) el.textContent = transferStats(session); }
+  }, 1000);
   let copyTimer;
   $('message').oninput = () => { if (snapshot) { renderMode(); renderSendAvailability(snapshot); } };
   $('text-clear').onclick = () => { $('message').value = ''; if (snapshot) render(snapshot); $('message').focus(); };
@@ -230,6 +279,11 @@
   $('clear').onclick = () => call('clear');
   $('refresh').onclick = async () => { const b = $('refresh'); b.disabled = true; await call(snapshot?.status === 'error' ? 'retry' : 'refresh'); b.disabled = false; };
   $('directory-change').onclick = () => call('directory');
+  function openConnect() {
+    $('connect-form').hidden = false;
+    $('address').focus();
+    api?.call('layout', 'connect').catch(() => {});
+  }
   $('connect-toggle').onclick = () => {
     $('connect-form').hidden = !$('connect-form').hidden;
     if (!$('connect-form').hidden) $('address').focus();

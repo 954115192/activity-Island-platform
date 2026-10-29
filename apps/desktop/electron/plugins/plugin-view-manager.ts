@@ -313,7 +313,7 @@ export class PluginViewManager {
     if (Math.abs(view.webContents.getZoomFactor() - factor) > 0.0001) view.webContents.setZoomFactor(factor)
   }
 
-  prepare(pluginId: string, mode: PluginMode, bounds: { x: number; y: number; width: number; height: number }, options: { preserveVisibility?: boolean } = {}): void {
+  prepare(pluginId: string, mode: PluginMode, bounds: { x: number; y: number; width: number; height: number }, options: { preserveVisibility?: boolean; forceModeReady?: boolean } = {}): void {
     const view = this.views.get(pluginId)
     if (!view) return
     if (!options.preserveVisibility) {
@@ -325,12 +325,13 @@ export class PluginViewManager {
     // Small-mode transitions need the same acknowledgement as expanded modes.
     // Without it, a medium page can be shown again while its DOM is still
     // rendering the medium view inside the now-small clipping viewport.
-    if (previousMode && previousMode !== mode) this.pendingModeReady.set(pluginId, mode)
+    if (previousMode && (previousMode !== mode || options.forceModeReady)) this.pendingModeReady.set(pluginId, mode)
     this.setBounds(pluginId, bounds)
     view.webContents.send('host:mode', { type: 'host:mode', mode, pluginId })
   }
 
   isShown(pluginId: string): boolean { return this.shown.get(pluginId) === true }
+  modeOf(pluginId: string): PluginMode | undefined { return this.modes.get(pluginId) }
 
   modeReady(pluginId: string, mode: PluginMode): void {
     if (this.pendingModeReady.get(pluginId) !== mode) return

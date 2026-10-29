@@ -145,6 +145,23 @@ async function main() {
   // 两段叠在一起（第一段还没停就来了第二段）：最容易看出"弹好几次"
   await run(EXPANDED, 180)
   const overlap = await sequence([{ at: 0, layout: COMPACT }, { at: 13, layout: IDLE_STRIP }])
+  const transferExpanded = { ...EXPANDED, mode: 'custom', width: 680, height: 620 }
+  const transferCompact = { ...COMPACT, width: 260, height: 40 }
+  await run(transferExpanded, 180)
+  const transferBaseline = await run(transferCompact, 90)
+  await run(transferExpanded, 180)
+  const transferRepeated = await js(`(() => {
+    const shell = document.querySelector('#host-root .island-shell')
+    const target = ${JSON.stringify(transferCompact)}
+    const samples = []
+    window.__apply(target)
+    for (let index = 0; index < 90; index += 1) {
+      if (index && index % 6 === 0) window.__apply(target)
+      samples.push([Math.round(index * 16.67), parseFloat(getComputedStyle(shell).width), parseFloat(getComputedStyle(shell).height)])
+      window.__advance(1)
+    }
+    return samples
+  })()`)
 
   const line = (label, m) => `${label}: ${m.startValue.toFixed(1)} → 峰值 ${m.peak.toFixed(1)}，过冲 ${(m.overshoot * 100).toFixed(1)}%，回弹 ${m.bounces} 次，稳定 ${Math.round(m.settle)}ms`
   console.log('=== 灵动岛外壳动画（虚拟时钟，60fps）===')
@@ -178,6 +195,7 @@ async function main() {
   check('收起时高度也只允许轻微越过 mini 条（逐帧不低于目标 1%）', collapseSamples.every(sample => sample[2] >= 44 * 0.99), `最小 ${Math.min(...collapseSamples.map(s => s[2])).toFixed(2)}px / 目标 44px`)
   check('交叠两段收起也不会来回弹（极值 ≤ 4）', extrema(overlap) <= 4, `${extrema(overlap)} 个极值`)
   check('交叠两段收起最终落到横条尺寸', Math.abs(overlap[overlap.length - 1][1] - 64) < 2, overlap[overlap.length - 1][1].toFixed(1))
+  check('待接收重复更新不改变收起动画轨迹', transferRepeated.every((sample, index) => Math.abs(sample[1] - transferBaseline[index][1]) < .1 && Math.abs(sample[2] - transferBaseline[index][2]) < .1), `最低高度 ${Math.min(...transferRepeated.map(s => s[2])).toFixed(1)}px`)
 
   let failed = 0
   for (const item of results) { if (!item.ok) failed += 1; console.log(`${item.ok ? 'PASS' : 'FAIL'}  ${item.name}${item.detail ? `   [${item.detail}]` : ''}`) }

@@ -385,6 +385,15 @@ const sdk = {
    * 通知数据的解析、去重、过滤与历史都在主进程完成，视图只拿已归一化的记录。
    */
   notifications: {
+    settingsAll: async (): Promise<Record<string, unknown>> => {
+      const result = await ipcRenderer.invoke('notifications:settings') as { values?: Record<string, unknown> }
+      return result?.values ?? {}
+    },
+    setSetting: async (key: string, value: unknown): Promise<Record<string, unknown>> => {
+      const result = await ipcRenderer.invoke('notifications:settings:set', { [key]: value }) as { values?: Record<string, unknown> }
+      return result?.values ?? {}
+    },
+    onSettingsChange: (listener: Listener<Record<string, unknown>>) => { settingsListeners.add(listener); return () => settingsListeners.delete(listener) },
     /** 监听状态 + 当前最新一条，用于首次渲染 */
     snapshot: (): Promise<{ status: Record<string, unknown> | null; items: Array<Record<string, unknown>> }> =>
       ipcRenderer.invoke('notifications:snapshot'),
@@ -401,8 +410,9 @@ const sdk = {
       }),
     dismiss: (eventId: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('notifications:dismiss', eventId),
     copyToken: (): Promise<{ ok: boolean; token?: string }> => ipcRenderer.invoke('notifications:copy-token'),
+    copyVerificationCode: (code: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('notifications:copy-code', code),
     rotateToken: (): Promise<{ ok: boolean; token?: string }> => ipcRenderer.invoke('notifications:rotate-token'),
-    /** 打开托盘同款的独立通知历史窗口 */
+    /** 打开独立通知历史窗口 */
     openHistory: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('notifications:open-history'),
   },
 }

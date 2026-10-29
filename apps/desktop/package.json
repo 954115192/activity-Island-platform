@@ -14,8 +14,8 @@
     "start": "electron .",
     "new-plugin": "node scripts/new-plugin.mjs",
     "icons": "node scripts/make-icons.mjs",
-    "dist": "npm run build && electron-builder --win",
-    "dist:portable": "npm run build && electron-builder --win portable",
+    "dist": "npm run build:listener && npm run build && electron-builder --win",
+    "dist:portable": "npm run build:listener && npm run build && electron-builder --win portable",
     "test:contract": "node scripts/tests/contract-unit.cjs && node scripts/tests/phase-c-authoring.cjs",
     "test:ui": "electron scripts/tests/settings-ui.cjs",
     "test:bg": "electron scripts/tests/background-e2e.cjs",
@@ -34,7 +34,8 @@
     "test:settings": "electron scripts/tests/settings-ui.cjs",
     "test:transfer": "npm run build:electron && node --test scripts/tests/transfer-service.cjs",
     "test:transfer-ui": "npm run build && electron scripts/tests/transfer-ui.cjs",
-    "build:listener": "dotnet publish tools/notify-listener/notify-listener.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o resources/notifications",
+    "test:notification-encoding": "node scripts/tests/notification-encoding.cjs",
+    "build:listener": "dotnet publish tools/notify-listener/notify-listener.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o build/notify-listener",
     "build:all": "npm run build:listener && npm run build"
   },
   "devDependencies": {

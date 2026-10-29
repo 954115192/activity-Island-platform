@@ -2,6 +2,7 @@ import { app, BrowserWindow, WebContentsView, clipboard, dialog, ipcMain, Menu, 
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { request as httpRequest } from 'node:http'
 import { EventBus } from './events/event-bus'
@@ -24,7 +25,7 @@ import { LocalSendService } from './transfers/service'
 import { extractZip, isZipFile, readZipEntries, zipDirectory } from './plugins/zip'
 import { allCapabilities, CAPABILITY_LABELS, checkCapability, normalizeCapabilities, WORKBENCH_TRUST_NOTICE, type WorkbenchCapability } from './workbench/capabilities'
 import { BUILTIN_WORKBENCH_ID, WorkbenchManager, type WorkbenchDescriptor } from './workbench/workbench-manager'
-import type { IslandMode, PluginDescriptor, PluginMode, PluginTool, PluginToolView } from './plugins/types'
+import type { IslandMode, PluginDescriptor, PluginManifest, PluginMode, PluginTool, PluginToolView } from './plugins/types'
 
 const SMALL_DEFAULT = { width: 134, height: 38 }
 const WINDOW_SIZE = { width: 1064, height: 730 }
@@ -63,7 +64,7 @@ let transferDragging = false
 let transferProgressVisible = false
 let transferDragTimer: NodeJS.Timeout | null = null
 let transferPanelSize = { width: 680, height: 620 }
-/** 独立通知历史窗口（托盘右键与中岛都能打开）。 */
+/** 独立通知历史窗口。 */
 let notificationHistoryWindow: BrowserWindow | null = null
 /** 正在把开发目录同步到安装目录的时间窗，用来吞掉同步自身触发的 installed 事件。 */
 let syncingUntil = 0
@@ -197,6 +198,24 @@ let previousCpu: { idle: number; total: number } | null = null
 let previousNetwork: { received: number; sent: number; at: number } | null = null
 
 function appRoot(): string { return app.isPackaged ? app.getAppPath() : process.cwd() }
+/** Run a cached copy in development so publishing a new listener never replaces a running executable. */
+function developmentListenerExe(): string {
+  const built = path.join(appRoot(), 'build', 'notify-listener', 'notify-listener.exe')
+  const fallback = path.join(appRoot(), 'resources', 'notifications', 'notify-listener.exe')
+  if (!fs.existsSync(built)) return fallback
+  try {
+    const bytes = fs.readFileSync(built)
+    const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 20)
+    const cacheDir = path.join(app.getPath('temp'), 'activity-island-listeners')
+    fs.mkdirSync(cacheDir, { recursive: true })
+    const cached = path.join(cacheDir, `notify-listener-${hash}.exe`)
+    if (!fs.existsSync(cached)) fs.writeFileSync(cached, bytes, { flag: 'wx' })
+    return cached
+  } catch (error) {
+    pluginLogger?.append('_host', 'warn', `无法缓存开发版通知监听器：${String(error)}`)
+    return built
+  }
+}
 /**
  * 资源文件（assets/ 由 `npm run icons` 生成）。
  *
@@ -233,9 +252,17 @@ function appIcon(): Electron.NativeImage | undefined {
 }
 function plugins(): PluginDescriptor[] { return pluginManager?.list() ?? [] }
 function pluginIssues() { return pluginManager?.issues() ?? [] }
-/** 内置模块：随应用分发、不可卸载、不写入用户插件目录。 */
-const BUILTIN_MODULES_DIR = path.join(appRoot(), 'modules')
-function isBuiltinModule(pluginId: string): boolean { return pluginManager?.isBuiltin(pluginId) ?? false }
+// 通知是宿主功能；只复用视图排版与动画，不参加插件发现和管理。
+function notificationViewDescriptor(): PluginDescriptor {
+  const rootDir = path.join(appRoot(), 'modules', BUILTIN_NOTIFICATIONS_ID)
+  const manifest = JSON.parse(fs.readFileSync(path.join(rootDir, 'module.json'), 'utf8')) as PluginManifest
+  return { manifest, rootDir, entryPath: path.join(rootDir, 'index.html') }
+}
+let notificationView: PluginDescriptor | null = null
+function runtimeView(id: string): PluginDescriptor | undefined {
+  return id === BUILTIN_NOTIFICATIONS_ID ? notificationView ?? undefined : pluginManager?.get(id)
+}
+function runtimeViews(): PluginDescriptor[] { return notificationView ? [...plugins(), notificationView] : plugins() }
 function pluginEnabled(id: string): boolean { return !islandSettings.disabledPlugins.includes(id) }
 /**
  * 用户选的"上岛方式"：resident = 常驻 mini 条；alert = 仅提醒。
@@ -272,10 +299,7 @@ function enabledPlugins(): PluginDescriptor[] { return plugins().filter(plugin =
 function startWatching(): void {
   if (!pluginManager || !pluginWatcher) return
   syncSettingsSchemas()
-  // 内置模块随应用分发，开发时由构建产出：不监视，否则改样式/代码会触发无谓的
-  // 视图重建（提醒事件会因此丢失），用户侧也没有可热改的入口。
   pluginWatcher.watch(pluginManager.list()
-    .filter(plugin => !isBuiltinModule(plugin.manifest.id))
     .map(plugin => ({
       id: plugin.manifest.id,
       installedDir: plugin.rootDir,
@@ -302,7 +326,6 @@ function allowReload(id: string): boolean {
 /** 热重载：必要时先从开发目录同步，然后重建视图、后台进程与布局。 */
 async function reloadPlugin(id: string, origin: 'source' | 'installed'): Promise<void> {
   if (!pluginManager || !viewManager) return
-  if (isBuiltinModule(id)) return
   if (origin === 'installed' && Date.now() < syncingUntil) return
   if (!allowReload(id)) return
   if (origin === 'source') {
@@ -341,7 +364,7 @@ async function reloadPlugin(id: string, origin: 'source' | 'installed'): Promise
 const SETTINGS_KEY = '__settings'
 
 function pluginSettingsFields(pluginId: string): Array<Record<string, unknown>> {
-  const settings = pluginManager?.get(pluginId)?.manifest.settings
+  const settings = runtimeView(pluginId)?.manifest.settings
   const fields = typeof settings === 'object' && settings !== null ? settings.fields : null
   return Array.isArray(fields) ? (fields as unknown as Array<Record<string, unknown>>) : []
 }
@@ -356,16 +379,25 @@ function pluginSettingsValues(pluginId: string): Record<string, unknown> {
   return { ...values, ...stored }
 }
 
-function savePluginSettings(pluginId: string, patch: Record<string, unknown>): Record<string, unknown> {
+function storeSettings(pluginId: string, patch: Record<string, unknown>): Record<string, unknown> {
   const allowed = new Set(pluginSettingsFields(pluginId).map(field => String(field.key ?? '')))
   const clean: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(patch)) if (allowed.has(key)) clean[key] = value
   const next = { ...pluginSettingsValues(pluginId), ...clean }
   storage?.set(pluginId, SETTINGS_KEY, next)
-  // 内置通知模块：策略、来源开关与端口由主进程直接消费，不走后台脚本重启。
-  if (pluginId === BUILTIN_NOTIFICATIONS_ID && notificationModule) {
-    void notificationModule.applySettings(next)
-  }
+  return next
+}
+
+function saveNotificationSettings(patch: Record<string, unknown>): Record<string, unknown> {
+  // 沿用原存储位置以保留升级前的通知配置。
+  const next = storeSettings(BUILTIN_NOTIFICATIONS_ID, patch)
+  void notificationModule?.applySettings(next)
+  viewManager?.sendToPlugin(BUILTIN_NOTIFICATIONS_ID, 'host:settings', { values: next, schema: notificationView?.manifest.settings ?? null })
+  return next
+}
+
+function savePluginSettings(pluginId: string, patch: Record<string, unknown>): Record<string, unknown> {
+  const next = storeSettings(pluginId, patch)
   // 后台脚本在启动时读一次参数（端口监听甚至要在启动时绑定端口），保存后重启它让新值生效。
   const descriptor = pluginManager?.get(pluginId)
   if (descriptor?.manifest.background?.entry && pluginEnabled(pluginId)) {
@@ -373,7 +405,7 @@ function savePluginSettings(pluginId: string, patch: Record<string, unknown>): R
     backgroundManager?.start(descriptor)
   }
   // 插件侧立即收到；控制台窗口也刷新。
-  viewManager?.sendToPlugin(pluginId, 'host:settings', { values: next, schema: pluginManager?.get(pluginId)?.manifest.settings ?? null })
+  viewManager?.sendToPlugin(pluginId, 'host:settings', { values: next, schema: runtimeView(pluginId)?.manifest.settings ?? null })
   if (pluginPanel && pluginPanel.pluginId === pluginId && !pluginPanel.view.webContents.isDestroyed()) {
     pluginPanel.view.webContents.send('host:settings', { values: next })
   }
@@ -384,6 +416,7 @@ function savePluginSettings(pluginId: string, patch: Record<string, unknown>): R
 function syncSettingsSchemas(): void {
   const schemas: Record<string, unknown> = {}
   for (const plugin of plugins()) if (plugin.manifest.settings) schemas[plugin.manifest.id] = plugin.manifest.settings
+  if (notificationView?.manifest.settings) schemas[BUILTIN_NOTIFICATIONS_ID] = notificationView.manifest.settings
   viewManager?.setSettingsSchemas(schemas)
 }
 
@@ -445,7 +478,8 @@ function compactLayout(visible: PluginDescriptor[], scale: number, options: { so
     const contentWidth = Math.max(only.width, Math.min(requested, MINI_BAR_MAX_WIDTH - padding * 2))
     const baseWidth = Math.max(minWidth, contentWidth + padding * 2)
     return {
-      placements: [{ pluginId: only.pluginId, x: Math.round((baseWidth - contentWidth) / 2), width: contentWidth, height: only.height }],
+      // 通知计数区贴到提醒胶囊右边缘，使其圆弧与外壳同心。
+      placements: [{ pluginId: only.pluginId, x: Math.round((baseWidth - contentWidth) / 2), width: contentWidth + (only.pluginId === BUILTIN_NOTIFICATIONS_ID ? padding : 0), height: only.height }],
       separators: [], baseWidth, height: only.height, overflow: 0, chipX: null,
     }
   }
@@ -511,7 +545,7 @@ function syncPluginViews(frame = animatedFrame): void {
   // The console grows out of the same shell instead of popping in at full size.
   viewManager.setWorkbenchStage(workbenchStage)
   const activeIds = new Set(animatedLayout.placements.map(item => item.pluginId))
-  for (const plugin of plugins()) {
+  for (const plugin of runtimeViews()) {
     const placement = animatedLayout.placements.find(item => item.pluginId === plugin.manifest.id)
     // 收起动画期间：这些插件的视图保持原样（中岛尺寸/内容），让收缩中的胶囊裁掉它们，
     // 等动画到位后再由 applyPendingMiniReveal 切成 mini —— 别在这里提前动它们。
@@ -982,7 +1016,7 @@ async function enterCustomMode(): Promise<void> {
   const serial = ++transitionSerial
   const view = await ensureWorkbenchView()
   if (!view || serial !== transitionSerial) return
-  for (const plugin of plugins()) viewManager.hide(plugin.manifest.id)
+  for (const plugin of runtimeViews()) viewManager.hide(plugin.manifest.id)
   const { width, height } = workbenchSize()
   const stage = stageOrigin(width, height, islandSettings.islandTop)
   workbenchStage = { x: stage.x, y: stage.y, width, height }
@@ -1020,7 +1054,17 @@ function roundedRectContains(x: number, y: number): boolean {
 function updateHitTest(): void {
   if (!mainWindow || mainWindow.isDestroyed() || fullscreenHidden) return
   const point = screen.getCursorScreenPoint()
-  const bounds = mainWindow.getBounds()
+  // Prefer the utility window only where it actually overlaps the cursor.
+  // The rest of the island remains clickable and stays above ordinary apps.
+  if (auxiliaryWindowAt(point)) {
+    if (hitInside) {
+      hitInside = false
+      islandState.patch({ pointerInside: false })
+      sendHost('host:cursor', false)
+    }
+    mainWindow.setIgnoreMouseEvents(true, { forward: true })
+    return
+  }
   const inside = roundedRectContains(point.x, point.y)
   if (inside === hitInside) return
   hitInside = inside
@@ -1101,21 +1145,42 @@ function setHitRegion(region: { x: number; y: number; width: number; height: num
   // turn. The caller refreshes after the new layout is submitted.
   if (refresh) updateHitTest()
 }
+function auxiliaryWindowAt(point: Electron.Point): boolean {
+  return [settingsWindow, notificationHistoryWindow].some(win => {
+    if (!win || win.isDestroyed() || !win.isVisible() || win.isMinimized()) return false
+    const bounds = win.getBounds()
+    return point.x >= bounds.x && point.x < bounds.x + bounds.width && point.y >= bounds.y && point.y < bounds.y + bounds.height
+  })
+}
+function syncHostLayerForAuxiliaryWindows(): void {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+  for (const auxiliary of [settingsWindow, notificationHistoryWindow]) {
+    if (auxiliary && !auxiliary.isDestroyed() && auxiliary.isAlwaysOnTop() !== !fullscreenHidden) auxiliary.setAlwaysOnTop(!fullscreenHidden, 'screen-saver')
+  }
+  if (!fullscreenHidden && !win.isAlwaysOnTop()) win.setAlwaysOnTop(true, 'screen-saver')
+  if (!fullscreenHidden) updateHitTest()
+}
+function watchAuxiliaryWindow(win: BrowserWindow): void {
+  win.on('show', syncHostLayerForAuxiliaryWindows)
+  win.on('hide', syncHostLayerForAuxiliaryWindows)
+  win.on('closed', syncHostLayerForAuxiliaryWindows)
+  syncHostLayerForAuxiliaryWindows()
+}
 function showHost(): void {
   if (!mainWindow || mainWindow.isDestroyed() || fullscreenHidden) return
   mainWindow.showInactive()
-  updateHitTest()
+  syncHostLayerForAuxiliaryWindows()
 }
 function updateHostVisibilityForFullscreen(fullscreen: boolean): void {
   const win = mainWindow
   if (!win || win.isDestroyed() || quitRequested) return
   fullscreenHidden = fullscreen
+  syncHostLayerForAuxiliaryWindows()
   if (fullscreen) {
     if (win.isVisible()) win.hide()
     return
   }
-  // Restore the same highest topmost level after hiding; no focus is stolen from
-  // the game/app that just left fullscreen.
   win.setAlwaysOnTop(true, 'screen-saver')
   if (!win.isVisible() || win.isMinimized()) {
     if (win.isMinimized()) win.restore()
@@ -1147,6 +1212,13 @@ async function showRest(hovered = false): Promise<void> {
   if (transferPanelOpen || transferDragging) return
   if (showTransferProgress()) return
   if (islandSettings.idleMode === 'collapsed') {
+    // Expanded content must pass through the mini layout before it is parked
+    // at 1×1. Going straight to idle leaves a warm view in medium mode; the
+    // next hover can then show that DOM clipped into the mini capsule.
+    if (['expanded', 'detail', 'custom'].includes(islandState.value.mode)) {
+      await showCompact(hovered)
+      return
+    }
     await showIdle(false)
     return
   }
@@ -1155,7 +1227,7 @@ async function showRest(hovered = false): Promise<void> {
 
 /** 提醒态：mini 条只显示这一条（覆盖式），结束由仲裁器的 ttl 决定。 */
 async function showAlertBar(alert: { pluginId: string; level: AlertLevel; color?: string; width?: number }): Promise<void> {
-  const plugin = pluginManager?.get(alert.pluginId)
+  const plugin = runtimeView(alert.pluginId)
   if (!plugin) return
   alertActive = true
   alertCarry = false
@@ -1183,7 +1255,7 @@ function clearAlertCarry(): void {
 /** 仲裁器批准独占：真的把小岛展开到中岛/大岛。 */
 function grantFocus(request: { pluginId: string; view: 'medium' | 'large' }): boolean {
   if (transferPanelOpen || transferDragging) return false
-  const plugin = pluginManager?.get(request.pluginId)
+  const plugin = runtimeView(request.pluginId)
   if (!plugin) return false
   const mode: Extract<IslandMode, 'expanded' | 'detail'> = request.view === 'large' ? 'detail' : 'expanded'
   if (mode === 'expanded' && !plugin.manifest.medium) return false
@@ -1282,7 +1354,7 @@ async function showCompact(hovered = false, solo?: PluginDescriptor, soloWidth?:
   const visibleIds = visible.map(item => item.manifest.id)
   const sameSet = !solo && !alertActive && islandState.value.mode === 'compact'
     && currentCompactIds.length === visibleIds.length
-    && currentCompactIds.every((id, index) => id === visibleIds[index] && viewManager!.has(id))
+    && currentCompactIds.every((id, index) => id === visibleIds[index] && viewManager!.has(id) && viewManager!.modeOf(id) === 'small')
 
   if (!solo && alertActive) {
     // 提醒正在整条显示时，hover 只改外壳尺寸，保持当前那条提醒的布局。
@@ -1368,12 +1440,19 @@ async function showCompact(hovered = false, solo?: PluginDescriptor, soloWidth?:
     && compactTop === top
     && warmedPluginIds.length === visibleIds.length
     && warmedPluginIds.every((id, index) => id === visibleIds[index])
+    && visible.every(plugin => viewManager!.modeOf(plugin.manifest.id) === 'small')
   {
     await Promise.all(visible.map(async plugin => {
       const placement = placements.find(item => item.pluginId === plugin.manifest.id)!
       const geometry = pluginGeometry(targetLayout, placement)
       if (collapsing || prewarmed) return
       viewManager!.prepare(plugin.manifest.id, 'small', geometry)
+      let ready = await viewManager!.waitForModeReady(plugin.manifest.id, 'small', 1200)
+      if (!ready && serial === transitionSerial) {
+        viewManager!.prepare(plugin.manifest.id, 'small', geometry, { forceModeReady: true })
+        ready = await viewManager!.waitForModeReady(plugin.manifest.id, 'small', 1200)
+      }
+      if (!ready) pluginLogger?.append(plugin.manifest.id, 'warn', 'mini 布局切换未及时确认')
     }))
   }
   if (serial !== transitionSerial) return
@@ -1411,13 +1490,25 @@ async function applyPendingMiniReveal(reason: 'frame' | 'timeout'): Promise<void
   for (const id of pending.ids) {
     const placement = pending.target.placements.find(item => item.pluginId === id)
     if (!placement) { viewManager.hide(id); continue }
-    viewManager.prepare(id, 'small', pluginGeometry(pending.target.layout, placement))
+    const bounds = pluginGeometry(pending.target.layout, placement)
+    viewManager.prepare(id, 'small', bounds)
     // Low-end machines can need longer than the expanded-mode budget to
     // repaint a file:// plugin page after the viewport has just collapsed.
     // Keep the native view hidden until the page confirms that its small DOM
     // is active; otherwise the old medium title can be clipped into the mini bar.
-    await viewManager.waitForModeReady(id, 'small', 500)
+    let ready = await viewManager.waitForModeReady(id, 'small', 1200)
+    if (!ready && serial === transitionSerial && islandState.value.mode === 'compact') {
+      // Re-send once for slow renderers. The preload acknowledges every mode
+      // message, including one whose requested mode is already selected.
+      viewManager.prepare(id, 'small', bounds, { forceModeReady: true })
+      ready = await viewManager.waitForModeReady(id, 'small', 1200)
+    }
     if (serial !== transitionSerial || islandState.value.mode !== 'compact') return
+    if (!ready) {
+      viewManager.hide(id)
+      pluginLogger?.append(id, 'warn', 'mini 布局未及时就绪，已隐藏旧尺寸视图以避免内容错位')
+      continue
+    }
     viewManager.show(id)
   }
   if (reason === 'timeout') viewManager.publishContract({ islandMode: hostLayoutState.mode, activePluginId: islandState.value.activePluginId, scale: islandSettings.miniScale })
@@ -1450,7 +1541,7 @@ async function showActive(plugin: PluginDescriptor, mode: Extract<IslandMode, 'e
   viewManager.prepare(plugin.manifest.id, pluginMode, geometry, { preserveVisibility: viewManager.isShown(plugin.manifest.id) })
   const ready = await viewManager.waitForModeReady(plugin.manifest.id, pluginMode)
   if (serial !== transitionSerial) return
-  for (const item of plugins()) if (item.manifest.id !== plugin.manifest.id) viewManager.hide(item.manifest.id)
+  for (const item of runtimeViews()) if (item.manifest.id !== plugin.manifest.id) viewManager.hide(item.manifest.id)
   hideWorkbench()
   const bounds = centerBounds(size.width, size.height, top)
   if (!bounds) return
@@ -1469,7 +1560,7 @@ async function showActive(plugin: PluginDescriptor, mode: Extract<IslandMode, 'e
   showHost()
 }
 function handlePluginCommand(pluginId: string, command: string, args: unknown[]): void {
-  const plugin = pluginManager?.get(pluginId)
+  const plugin = runtimeView(pluginId)
   if (!plugin) return
   const state = islandState.value
   if (command === 'ui:expand') {
@@ -2024,6 +2115,7 @@ function createSettingsWindow(tab?: string): BrowserWindow {
     webPreferences: { preload: path.join(__dirname, 'preload', 'settings-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false },
   })
   settingsWindow = win
+  watchAuxiliaryWindow(win)
   void win.loadFile(path.join(appRoot(), 'console-apps', 'settings', 'index.html'), tab ? { query: { tab } } : undefined)
   win.on('closed', () => { settingsWindow = null; pluginPanel = null })
   win.on('resize', applyPluginPanelBounds)
@@ -2128,7 +2220,7 @@ function emitNotificationEvent(name: string, payload: unknown): void {
     return
   }
   // 视图尚未加载：先创建，加载完成后再补发这条事件（提醒不能丢）。
-  const descriptor = pluginManager?.get(BUILTIN_NOTIFICATIONS_ID)
+  const descriptor = notificationView
   if (!descriptor) return
   void manager.ensure(descriptor).then(() => {
     viewManager?.sendToPlugin(BUILTIN_NOTIFICATIONS_ID, 'host:event', { name, payload })
@@ -2156,9 +2248,13 @@ function showTransferProgress(): boolean {
     return false
   }
   const task = tasks[0]
-  const progress = task.total ? Math.min(100, Math.floor(task.bytes / task.total * 100)) : 0
+  const progress = task.total ? Math.min(100, Math.floor((task.state === 'verifying' ? task.preparedBytes ?? 0 : task.bytes) / task.total * 100)) : 0
   const text = task.state === 'waiting' ? (task.direction === 'incoming' ? '有文件等待接收' : `等待 ${task.peer} 接受`)
-    : task.state === 'verifying' ? '正在校验文件…' : `${task.direction === 'incoming' ? '接收' : '发送'}文件 · ${progress}%`
+    : task.state === 'verifying' ? `准备文件 · ${progress}%` : `${task.direction === 'incoming' ? '接收' : '发送'}文件 · ${progress}%`
+  if (transferProgressVisible) {
+    sendHost('transfers:progress', { text, progress })
+    return true
+  }
   clearPendingMiniReveal()
   cancelCollapse()
   hideWorkbench()
@@ -2237,6 +2333,8 @@ function installTransferIpc(): void {
     Menu.buildFromTemplate([
       { label: '分享剪贴板文字/链接', click: () => { void openTransferPanel({ mode: 'text', text: clipboard.readText() }) } },
       { label: '文件传输', click: () => { void openTransferPanel({ mode: 'files' }) } },
+      { type: 'separator' },
+      { label: '通知历史', click: () => { createNotificationHistoryWindow() } },
     ]).popup({ window: mainWindow })
   })
   ipcMain.on('transfers:drag', (event, entered: boolean) => {
@@ -2320,6 +2418,11 @@ function installTransferIpc(): void {
           await transferService.sendText(String(input.id ?? ''), input.text, typeof input.pin === 'string' ? input.pin : undefined)
           break
         }
+        case 'retry-send': {
+          const input = value as { id?: unknown; pin?: unknown }
+          await transferService.retrySend(String(input?.id ?? ''), typeof input?.pin === 'string' ? input.pin : undefined)
+          break
+        }
         case 'copy-text': clipboard.writeText(transferService.textForCopy(String(value))); break
         case 'open-text': {
           const text = transferService.textForCopy(String(value)).trim()
@@ -2334,6 +2437,12 @@ function installTransferIpc(): void {
         case 'clear': transferService.clearDraft(); break
         case 'clear-history': await transferService.clearHistory(); break
         case 'remove': transferService.removeDraftFile(String(value)); break
+        case 'reveal-file': {
+          const input = value as { id?: unknown; fileId?: unknown }
+          const target = await transferService.locationFor(String(input?.id ?? ''), typeof input?.fileId === 'string' ? input.fileId : undefined)
+          shell.showItemInFolder(target)
+          break
+        }
         case 'folder': await shell.openPath(transferService.snapshot().saveDirectory); break
         case 'close': hideTransferPanel(); await showRest(); break
         default: return { ok: false, error: '未知文件传输操作' }
@@ -2441,6 +2550,7 @@ function createNotificationHistoryWindow(): BrowserWindow {
     },
   })
   notificationHistoryWindow = win
+  watchAuxiliaryWindow(win)
   win.on('closed', () => { notificationHistoryWindow = null })
   void win.loadFile(path.join(appRoot(), 'modules', BUILTIN_NOTIFICATIONS_ID, 'history.html'))
   return win
@@ -2458,8 +2568,6 @@ function createTray(): void {
   pluginLogger?.append('_host', 'info', `已启动 v${app.getVersion()}${app.isPackaged ? '（安装版）' : '（源码运行）'} · assets=${path.dirname(assetFile('tray.png'))}`)
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '打开控制台管理', click: () => { createSettingsWindow().show() } },
-    { label: '通知历史', click: () => { createNotificationHistoryWindow() } },
-    { label: '文件传输 · LocalSend', click: () => { void openTransferPanel() } },
     { type: 'separator' },
     { label: '退出', click: () => { quitRequested = true; closeAppWindows(); app.quit() } },
   ]))
@@ -2583,7 +2691,7 @@ function wireIpc(): void {
   })
   ipcMain.handle('host:plugins:uninstall', async (_event, pluginId: string) => {
     try {
-      if (isBuiltinModule(pluginId)) return { ok: false, error: '内置模块不能卸载（可在设置中关闭）' }
+      if (!pluginManager?.has(pluginId)) return { ok: false, error: '插件未加载' }
       arbiter.interrupt()
       if (pluginPanel?.pluginId === pluginId) closePluginPanel()
       clearPluginTools(pluginId)
@@ -2596,21 +2704,33 @@ function wireIpc(): void {
       return { ok: true }
     } catch (error) { return { ok: false, error: String(error) } }
   })
-  ipcMain.handle('plugin:settings:get', (_event, pluginId: string) => ({ values: pluginSettingsValues(pluginId), schema: pluginManager?.get(pluginId)?.manifest.settings ?? null }))
-  ipcMain.handle('plugin:settings:set', (_event, pluginId: string, patch: Record<string, unknown>) => ({ values: savePluginSettings(pluginId, patch ?? {}) }))
-  ipcMain.handle('host:plugins:settings', (_event, pluginId: string) => ({ ok: true, values: pluginSettingsValues(pluginId), schema: pluginManager?.get(pluginId)?.manifest.settings ?? null }))
+  ipcMain.handle('plugin:settings:get', (_event, pluginId: string) => pluginManager?.has(pluginId) ? ({ values: pluginSettingsValues(pluginId), schema: pluginManager.get(pluginId)?.manifest.settings ?? null }) : ({ values: {}, schema: null }))
+  ipcMain.handle('plugin:settings:set', (_event, pluginId: string, patch: Record<string, unknown>) => pluginManager?.has(pluginId) ? ({ values: savePluginSettings(pluginId, patch ?? {}) }) : ({ values: {} }))
+  ipcMain.handle('host:plugins:settings', (_event, pluginId: string) => pluginManager?.has(pluginId) ? ({ ok: true, values: pluginSettingsValues(pluginId), schema: pluginManager.get(pluginId)?.manifest.settings ?? null }) : ({ ok: false, error: '插件未加载' }))
   ipcMain.handle('host:plugins:settings:set', (_event, pluginId: string, patch: Record<string, unknown>) => {
+    if (!pluginManager?.has(pluginId)) return { ok: false, error: '插件未加载' }
     const values = savePluginSettings(pluginId, patch ?? {})
     const target = settingsWindow
     if (target && !target.isDestroyed()) target.webContents.send('settings:plugin-values', { pluginId, values })
     return { ok: true, values }
   })
-  ipcMain.handle('plugin:storage:get', (_event, pluginId: string, key: string) => storage?.get(pluginId, key))
-  ipcMain.handle('plugin:storage:set', (_event, pluginId: string, key: string, value: unknown) => { storage?.set(pluginId, key, value); return { ok: true } })
+  ipcMain.handle('plugin:storage:get', (_event, pluginId: string, key: string) => pluginManager?.has(pluginId) ? storage?.get(pluginId, key) : undefined)
+  ipcMain.handle('plugin:storage:set', (_event, pluginId: string, key: string, value: unknown) => { if (!pluginManager?.has(pluginId)) return { ok: false }; storage?.set(pluginId, key, value); return { ok: true } })
   // 插件主动握手：它的脚本可能早于宿主推送 host:hello 运行。
   ipcMain.handle('plugin:hello', event => viewManager?.helloFor(event.sender) ?? null)
 
   // ---- 内置通知能力：只有 system-notifications 视图与历史窗口会调用 ----
+  const canManageNotificationSettings = (event: Electron.IpcMainInvokeEvent): boolean => {
+    if (settingsWindow && !settingsWindow.isDestroyed() && event.sender === settingsWindow.webContents) return true
+    const sender = viewManager?.helloFor(event.sender) as { pluginId?: string } | null
+    return sender?.pluginId === BUILTIN_NOTIFICATIONS_ID
+  }
+  ipcMain.handle('notifications:settings', event => canManageNotificationSettings(event)
+    ? ({ ok: true, values: pluginSettingsValues(BUILTIN_NOTIFICATIONS_ID), schema: notificationView?.manifest.settings ?? null })
+    : ({ ok: false, error: '没有通知设置访问权限' }))
+  ipcMain.handle('notifications:settings:set', (event, patch: Record<string, unknown>) => canManageNotificationSettings(event)
+    ? ({ ok: true, values: saveNotificationSettings(patch ?? {}) })
+    : ({ ok: false, error: '没有通知设置访问权限' }))
   ipcMain.handle('notifications:snapshot', async (_event, limit?: number) => notificationModule?.snapshot(limit) ?? { status: null, items: [] })
   ipcMain.handle('notifications:query', async (_event, query: Record<string, unknown>) => notificationModule?.queryHistory(query ?? {}) ?? { items: [], total: 0 })
   ipcMain.handle('notifications:clear', async (_event, options?: { clearWindows?: boolean }) => {
@@ -2627,6 +2747,11 @@ function wireIpc(): void {
     return { action }
   })
   ipcMain.handle('notifications:dismiss', async (_event, eventId: string) => ({ ok: await (notificationModule?.dismiss(eventId) ?? Promise.resolve(false)) }))
+  ipcMain.handle('notifications:copy-code', (event, code: unknown) => {
+    const sender = viewManager?.helloFor(event.sender) as { pluginId?: string } | null
+    if (sender?.pluginId !== BUILTIN_NOTIFICATIONS_ID || typeof code !== 'string' || !/^[A-Za-z0-9]{4,8}$/.test(code) || !/\d/.test(code)) return { ok: false }
+    try { clipboard.writeText(code); return { ok: true } } catch { return { ok: false } }
+  })
   ipcMain.handle('notifications:copy-token', async () => {
     const token = notificationModule?.tokenValue() ?? ''
     if (!token) return { ok: false }
@@ -2785,7 +2910,7 @@ function wireIpc(): void {
     if (state.mode === 'idle') await showIdle(idleHover)
     else if (state.mode === 'compact') await showRest(hitInside)
     else if ((state.mode === 'expanded' || state.mode === 'detail') && state.activePluginId) {
-      const plugin = pluginManager?.get(state.activePluginId)
+      const plugin = runtimeView(state.activePluginId)
       if (plugin) await showActive(plugin, state.mode)
     } else if (state.mode === 'custom') await enterCustomMode()
     sendSettingsChanged()
@@ -3119,9 +3244,8 @@ app.whenReady().then(async () => {
   // Windows 靠 AppUserModelId 认任务栏图标与分组；不设的话任务栏显示的是 Electron 默认图标。
   app.setAppUserModelId('com.activity-island.host')
   const userRoot = path.join(app.getPath('userData'), 'plugins')
-  // 内置模块（modules/）随应用分发；用户插件目录只能补充，不能覆盖同 id 的内置模块。
-  pluginManager = new PluginManager([userRoot], userRoot)
-  pluginManager.addBuiltinRoot(BUILTIN_MODULES_DIR)
+  notificationView = notificationViewDescriptor()
+  pluginManager = new PluginManager([userRoot], userRoot, new Set([BUILTIN_NOTIFICATIONS_ID]))
   const discovered = pluginManager.discover()
   storage = new PluginStorage(path.join(app.getPath('userData'), 'plugin-data'))
   pluginLogger = new PluginLogger(path.join(app.getPath('userData'), 'island-plugins', 'logs'))
@@ -3142,11 +3266,14 @@ app.whenReady().then(async () => {
   // 登录项可能因为换安装路径/重装而失效：设置里开着就重新对齐一次。
   if (islandSettings.launchAtLogin) applyLaunchAtLogin(true)
   // 用户排序里丢掉已卸载的插件，避免顺序表无限增长。
+  const hadLegacyNotificationPlugin = islandSettings.disabledPlugins.includes(BUILTIN_NOTIFICATIONS_ID)
+    || BUILTIN_NOTIFICATIONS_ID in islandSettings.pluginModes || islandSettings.pluginOrder.includes(BUILTIN_NOTIFICATIONS_ID)
   islandSettings.pluginOrder = pruneOrder(islandSettings.pluginOrder, discovered.map(item => item.manifest.id))
   islandSettings.disabledPlugins = islandSettings.disabledPlugins.filter(id => discovered.some(item => item.manifest.id === id))
   islandSettings.pluginModes = Object.fromEntries(
     Object.entries(islandSettings.pluginModes).filter(([id]) => discovered.some(item => item.manifest.id === id)),
   )
+  if (hadLegacyNotificationPlugin) saveIslandSettings()
   // 旧版本没有"上岛方式"：升级时先把已有插件默认成常驻，保持原来的 mini 条行为。
   // 之后新装的插件才按清单 resident 默认（false = 仅提醒）。
   if (!islandSettings.pluginModesMigrated) {
@@ -3202,7 +3329,7 @@ app.whenReady().then(async () => {
     : path.join(appRoot(), 'resources', 'notifications', 'listener.ps1')
   const listenerExe = app.isPackaged
     ? path.join(process.resourcesPath ?? '', 'notifications', 'notify-listener.exe')
-    : path.join(appRoot(), 'resources', 'notifications', 'notify-listener.exe')
+    : developmentListenerExe()
   const clearScript = app.isPackaged
     ? path.join(process.resourcesPath ?? '', 'notifications', 'clear.ps1')
     : path.join(appRoot(), 'resources', 'notifications', 'clear.ps1')
@@ -3221,7 +3348,7 @@ app.whenReady().then(async () => {
   })
   // 仅提醒模块不会被 warmPluginViews 预热：这里主动加载一次视图，
   // 让首条通知就能立刻触发提醒，也避免提醒事件发给未加载的视图。
-  const notifDescriptor = pluginManager?.get(BUILTIN_NOTIFICATIONS_ID)
+  const notifDescriptor = notificationView
   if (notifDescriptor) void viewManager.ensure(notifDescriptor)
   // 启动时后台检查一次更新：不拦启动、不弹窗，结果留给「关于」页。
   if (islandSettings.checkUpdatesOnLaunch) setTimeout(() => { void checkForUpdates(false) }, 5000)

@@ -17,9 +17,14 @@
   const state = {
     mode: 'small',
     current: null,
+    items: [],
+    revision: 0,
+    refreshSerial: 0,
     status: null,
     settings: {},
     toast: '',
+    codeCopy: null,
+    alertIds: new Set(),
   }
 
   const el = {
@@ -27,6 +32,7 @@
     badge: document.getElementById('s-badge'),
     title: document.getElementById('s-title'),
     sub: document.getElementById('s-sub'),
+    count: document.getElementById('s-count'),
     medium: document.getElementById('medium'),
   }
 
@@ -77,6 +83,11 @@
   /* ---------------- 渲染 ---------------- */
   function renderSmall() {
     const item = state.current
+    const extra = Math.max(0, state.alertIds.size - 1)
+    el.count.className = 's-count' + (item && item.level === 'warn' ? ' warn' : item && item.level === 'critical' ? ' critical' : '')
+    el.count.hidden = !item || !extra
+    el.count.textContent = extra ? (extra > 99 ? '+99+' : `+${extra}`) : ''
+    el.count.title = extra ? `还有 ${extra} 条通知，点击查看` : ''
     if (!item) {
       el.badge.className = 's-badge'
       el.badge.textContent = '·'
@@ -114,6 +125,9 @@
     const total = (state.status && state.status.totalRecords) || 0
     const token = (state.status && state.status.token) || ''
     const masked = token ? token.slice(0, 6) + '…' + token.slice(-4) : '未生成'
+    const code = item ? window.findVerificationCode(item.title, item.content) : null
+    const copyStatus = code && state.codeCopy && state.codeCopy.id === item.id && state.codeCopy.code === code ? state.codeCopy.status : ''
+    const index = item ? state.items.findIndex(entry => entry.id === item.id) : -1
 
     const head =
       '<div class="m-head">' +
@@ -131,9 +145,11 @@
           '<div class="card-top">' +
             `<span class="card-app">${esc(item.app)}</span>` +
             `<span class="card-time">${esc(relTime(item.ts))}</span>` +
+            (state.items.length > 1 && index >= 0 ? `<span class="notification-nav"><button class="nav-btn" data-act="newer" title="上一条（较新）" aria-label="上一条（较新）" ${index === 0 ? 'disabled' : ''}>‹</button><span>${index + 1} / ${state.items.length}</span><button class="nav-btn" data-act="older" title="下一条（较早）" aria-label="下一条（较早）" ${index === state.items.length - 1 ? 'disabled' : ''}>›</button></span>` : '') +
           '</div>' +
           `<div class="card-title">${esc(item.title)}</div>` +
           (item.content ? `<div class="card-body">${esc(item.content)}</div>` : '') +
+          (code ? `<div class="verification"><button class="verification-copy" data-act="copy-code">${ICON.copy} 复制验证码</button><div class="verification-result" aria-live="polite"><span class="verification-value${copyStatus === 'success' ? ' copied' : ''}">${esc(code)}</span>${copyStatus ? `<span class="verification-status${copyStatus === 'error' ? ' error' : ''}">${copyStatus === 'success' ? '复制成功' : '复制失败，请重试'}</span>` : ''}</div></div>` : '') +
           (item.repeat > 0 ? `<div class="card-repeat">重复推送已合并，共 ${item.repeat + 1} 次</div>` : '') +
         '</div>'
       : '<div class="empty">还没有捕获到新通知。<br>Windows 通知或本地脚本推送后会出现在这里。</div>'
@@ -182,7 +198,11 @@
     const sub = document.createElement('span')
     sub.className = 's-sub'
     sub.textContent = item.content || (item.title === item.app ? '' : item.app)
-    box.replaceChildren(badge, title, sub)
+    const count = document.createElement('span')
+    count.className = 's-count' + (item.level === 'warn' ? ' warn' : item.level === 'critical' ? ' critical' : '')
+    const extra = Math.max(0, state.alertIds.size - 1)
+    count.textContent = extra ? (extra > 99 ? '+99+' : `+${extra}`) : ''
+    box.replaceChildren(badge, title, sub, count)
 
     const cssWidth = Math.ceil(box.getBoundingClientRect().width)
     if (!cssWidth) return 0
@@ -201,12 +221,17 @@
   /* ---------------- 数据刷新 ---------------- */
   async function refresh() {
     if (!api) return
+    const serial = ++state.refreshSerial
+    const revision = state.revision
     try {
       const snapshot = await api.snapshot()
-      if (!snapshot) return
+      if (!snapshot || serial !== state.refreshSerial) return
+      if (revision !== state.revision) { void refresh(); return }
       state.status = snapshot.status
       const items = (snapshot.items || []).map(normalize).filter(Boolean)
-      if (items.length > 0) state.current = items[0]
+      const selected = state.mode === 'medium' && state.current && items.find(item => item.id === state.current.id)
+      state.items = items
+      state.current = selected || items[0] || null
       applyMode()
     } catch { /* 忽略 */ }
   }
@@ -214,8 +239,21 @@
   function onItem(payload) {
     const item = normalize(payload)
     if (!item) return
-    state.current = item
-    if (state.status) state.status.totalRecords = (state.status.totalRecords || 0) + 1
+    state.revision++
+    const existing = state.items.findIndex(entry => entry.id === item.id)
+    if (existing >= 0) state.items[existing] = item
+    else {
+      state.items.unshift(item)
+      if (state.status) state.status.totalRecords = (state.status.totalRecords || 0) + 1
+    }
+    if (state.mode !== 'medium' || !state.current) state.current = state.items[0]
+    else if (state.current.id === item.id) state.current = item
+    // Keep a notification being read available even during a burst.
+    if (state.items.length > 30) {
+      const selected = state.current
+      state.items = state.items.slice(0, 30)
+      if (selected && !state.items.some(entry => entry.id === selected.id)) state.items[29] = selected
+    }
     applyMode()
   }
 
@@ -229,10 +267,12 @@
    */
   function onAlert(payload) {
     if (!payload) return
+    if (payload.id) state.alertIds.add(String(payload.id))
+    if (state.mode === 'small') renderSmall()
     const level = payload.level === 'warn' || payload.level === 'critical' ? payload.level : 'info'
     const seconds = Number(payload.ttlSeconds)
     const ttl = Math.max(1000, Math.round((Number.isFinite(seconds) && seconds > 0 ? seconds : 8) * 1000))
-    const width = measureSmallWidth(state.current)
+    const width = measureSmallWidth(state.items[0] || state.current)
     try {
       const options = { key: 'system-notification', level, ttl }
       if (width > 0) options.width = width
@@ -244,13 +284,17 @@
 
   function onRemoved(payload) {
     if (!payload) return
+    state.revision++
     if (payload.clear) {
+      state.alertIds.clear()
       state.current = null
+      state.items = []
       if (state.status) state.status.totalRecords = 0
       applyMode()
       return
     }
     const ids = Array.isArray(payload.ids) ? payload.ids.map(String) : []
+    for (const id of ids) state.alertIds.delete(id)
     if (state.current && ids.includes(state.current.id)) {
       state.current = null
     }
@@ -267,7 +311,7 @@
     if (act === 'toggle-pause') {
       const next = !isPaused()
       state.settings = Object.assign({}, state.settings, { alertEnabled: next })
-      try { await island.settings.set('alertEnabled', next) } catch { /* 忽略 */ }
+      try { await api.setSetting('alertEnabled', next) } catch { /* 忽略 */ }
       renderMedium()
     } else if (act === 'clear') {
       try {
@@ -277,12 +321,35 @@
           else state.toast = result.clearedWindows ? '已清空（含系统通知中心）' : '已清空'
         }
         if (result && result.action !== 'cancel') {
+          state.revision++
+          state.alertIds.clear()
           state.current = null
+          state.items = []
           if (state.status) state.status.totalRecords = 0
         }
       } catch { /* 忽略 */ }
       applyMode()
       void refresh()
+    } else if (act === 'newer' || act === 'older') {
+      const index = state.current ? state.items.findIndex(item => item.id === state.current.id) : -1
+      const next = index + (act === 'newer' ? -1 : 1)
+      if (index >= 0 && next >= 0 && next < state.items.length) {
+        state.current = state.items[next]
+        renderMedium()
+      }
+    } else if (act === 'copy-code') {
+      const item = state.current
+      const code = item && window.findVerificationCode(item.title, item.content)
+      if (!code) return
+      let status = 'error'
+      try {
+        const result = await api.copyVerificationCode(code)
+        if (result && result.ok) status = 'success'
+      } catch { /* 显示复制失败 */ }
+      if (state.current && state.current.id === item.id && window.findVerificationCode(state.current.title, state.current.content) === code) {
+        state.codeCopy = { id: item.id, code, status }
+        renderMedium()
+      }
     } else if (act === 'copy-token') {
       try { await api.copyToken() } catch { /* 忽略 */ }
       state.toast = '已复制'
@@ -295,6 +362,8 @@
   function bind() {
     island.ui.onModeChange((mode) => {
       state.mode = mode
+      if (mode === 'medium') state.alertIds.clear()
+      if (mode === 'small' && state.items.length) state.current = state.items[0]
       applyMode()
     })
 
@@ -303,7 +372,15 @@
     island.events.on('notif:removed', onRemoved)
     island.events.on('notif:alert', onAlert)
 
-    island.settings.onChange((values) => {
+    island.onIntent((intent) => {
+      if (intent && intent.kind === 'alert' && intent.key === 'system-notification' &&
+          ['expired', 'dismissed', 'preempted', 'denied'].includes(intent.result)) {
+        state.alertIds.clear()
+        if (state.mode === 'small') renderSmall()
+      }
+    })
+
+    api.onSettingsChange((values) => {
       state.settings = values || {}
       renderMedium()
     })
@@ -316,7 +393,7 @@
 
   async function boot() {
     try { await island.ready } catch { /* 忽略 */ }
-    try { state.settings = (await island.settings.all()) || {} } catch { state.settings = {} }
+    try { state.settings = api ? (await api.settingsAll()) || {} : {} } catch { state.settings = {} }
     bind()
     applyMode()
     await refresh()

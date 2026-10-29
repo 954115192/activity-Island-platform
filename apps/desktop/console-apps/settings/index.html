@@ -451,7 +451,7 @@
         <div class="card"><div class="card-head"><h2>开机启动</h2><span class="hint">登录 Windows 后自动运行</span></div><label class="toggle-row"><input type="checkbox" id="launch-at-login"><span>开机自动启动灵动岛<small>写入 Windows 登录项，不改系统服务；安装版注册当前程序，便携版注册便携 exe。</small></span></label><span class="hint" id="launch-at-login-status"></span></div>
       </section>
       <section id="notifications" hidden>
-        <h1>通知</h1><p class="subtitle">接管 Windows 通知中心，并向本机脚本开放一个触发接口。历史在托盘菜单里查看。</p>
+        <h1>通知</h1><p class="subtitle">接管 Windows 通知中心，并向本机脚本开放一个触发接口。可从灵动岛右侧菜单查看历史。</p>
         <div id="notif-status"></div>
         <div id="notif-settings"></div>
         <div class="card">
@@ -562,7 +562,7 @@
           <div class="guide-shapes">
             <div class="shape-row"><b>悬停</b><span>鼠标移到待机胶囊上，它会展开成信息条。</span></div>
             <div class="shape-row"><b>单击</b><span>展开当前内容；再点一次进入更大一档。</span></div>
-            <div class="shape-row"><b>右键</b><span>打开工作台。托盘图标右键也有菜单（含通知历史、退出）。</span></div>
+            <div class="shape-row"><b>右键</b><span>打开工作台。托盘图标右键可打开控制台或退出。</span></div>
             <div class="shape-row"><b>拖拽</b><span>在「插件」页把芯片拖到想要的位置，决定岛上从左到右的顺序。</span></div>
           </div>
         </div>
@@ -570,7 +570,7 @@
         <div class="card">
           <div class="card-head"><h2>通知</h2><span class="hint">内置，无需插件</span></div>
           <p class="guide-text">软件会接管 Windows 通知中心里出现的通知，把它们显示在岛上：小岛看过一眼，中岛看全文。
-            通知历史在托盘右键菜单里集中管理，不在岛上占位置。</p>
+            通知历史可从灵动岛右侧菜单打开，集中管理。</p>
           <div class="guide-shapes">
             <div class="shape-row"><b>读取哪些</b><span>所有进入通知中心的应用通知。首次使用需要在系统设置里允许访问通知。</span></div>
             <div class="shape-row"><b>怎么不打扰</b><span>「通知」页里可暂停提醒、按应用过滤、设免打扰时段。这些只影响提醒，历史始终记录。</span></div>
@@ -2084,15 +2084,13 @@
     $('close').onclick = () => api.close()
 
     // ---------------- 通知页 ----------------
-    // 内置通知模块的设置走的是插件参数通道（storage + manifest.settings），
-    // 这里直接复用同一套渲染，避免两套表单各自漂移。
-    const NOTIF_ID = 'system-notifications'
+    // 通知设置使用宿主自己的接口，保留已有配置。
     let notifSchema = []
 
     async function refreshNotifications() {
       const box = $('notif-settings')
       const statusBox = $('notif-status')
-      const payload = await api.pluginSettings(NOTIF_ID).catch(() => null)
+      const payload = await api.notificationSettings().catch(() => null)
       notifSchema = payload?.schema?.fields ?? []
       const values = payload?.values ?? {}
       const status = (await api.notificationStatus().catch(() => null))?.status ?? null
@@ -2185,7 +2183,7 @@
           const confirmed = await confirmLanScope()
           if (!confirmed) { if ($('notif-save-hint')) $('notif-save-hint').textContent = '已取消'; return }
         }
-        const saved = await api.setPluginSettings(NOTIF_ID, patch).catch(() => null)
+        const saved = await api.setNotificationSettings(patch).catch(() => null)
         if (!saved?.ok) { $('notif-save-hint').textContent = '保存失败'; return }
         $('notif-save-hint').textContent = '已保存 ✓'
         setTimeout(() => { if ($('notif-save-hint')) $('notif-save-hint').textContent = '' }, 1600)

@@ -1,0 +1,13 @@
+const assert = require('node:assert/strict')
+const find = require('../../modules/system-notifications/verification-code.js')
+
+assert.equal(find('短信', '您的验证码是：123456，有效期 5 分钟。'), '123456')
+assert.equal(find('', '校验码【A1B2C3】请勿泄露'), 'A1B2C3')
+assert.equal(find('Verification code: 982134', ''), '982134')
+assert.equal(find('', '验证码 123456，校验码 654321'), null)
+assert.equal(find('', '验证码已发送，有效期 5 分钟，电话 13800138000'), null)
+assert.equal(find('', '订单号 123456'), null)
+assert.equal(find('', '验证码 123456789'), null)
+assert.equal(find('', '验证码 1234-5678'), null)
+assert.equal(find('', '验证码 ABCDEF'), null)
+console.log('verification code recognition passed')

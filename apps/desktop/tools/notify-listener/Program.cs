@@ -38,8 +38,24 @@ internal static class Program
     private static volatile int activeCount;
 
     [STAThread]
-    private static int Main()
+    private static int Main(string[] args)
     {
+        // Electron decodes the listener's redirected stdout/stderr as UTF-8.
+        // Do not inherit the Windows console code page, which differs by machine.
+        Console.OutputEncoding = new UTF8Encoding(false);
+
+        // A side-effect-free diagnostic for checking the actual packaged pipe.
+        if (args.Length == 1 && args[0] == "--encoding-probe")
+        {
+            WriteEvent(new Dictionary<string, object?>
+            {
+                ["type"] = "encoding-probe",
+                ["title"] = "中文通知",
+                ["content"] = "验证码 123456 · 😀",
+            });
+            return 0;
+        }
+
         // 关键：UserNotificationListener.NotificationChanged 的事件订阅要求进程有
         // 显式设置的 AppUserModelID，否则 add_NotificationChanged 抛 0x80070490
         // (Element not found)。与宿主应用保持同一个 AUMID。

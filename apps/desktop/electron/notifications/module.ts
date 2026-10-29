@@ -110,6 +110,7 @@ export class NotificationModule {
       // 提醒由视图发起：它量过内容宽度后调用 island.alert，宽度自适应才和插件版一致。
       this.options.log('info', `提醒分发：${alert.event.payload.title}（${alert.event.payload.level}）`)
       this.options.emit('notif:alert', {
+        id: alert.event.eventId,
         level: alert.event.payload.level,
         ttlSeconds: alert.ttlSeconds,
       })

@@ -18,5 +18,6 @@ Thumbs.db
 
 # C# 监听器构建产物（用 npm run build:listener 生成）
 /resources/notifications/notify-listener.exe
+/build/notify-listener/
 tools/notify-listener/bin/
 tools/notify-listener/obj/

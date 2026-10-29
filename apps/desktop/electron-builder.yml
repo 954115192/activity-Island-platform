@@ -44,6 +44,9 @@ extraResources:
     to: notifications
     filter:
       - '**/*'
+      - '!notify-listener.exe'
+  - from: build/notify-listener/notify-listener.exe
+    to: notifications/notify-listener.exe
 
 asar: true
 compression: maximum
