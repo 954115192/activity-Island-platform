@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>灵动岛插件</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main id="app">
+    <section id="small" class="view" aria-label="展开插件">
+      <span class="dot"></span><span class="greeting">你好</span><time class="clock"></time>
+    </section>
+    <section id="medium" class="view">
+      <div class="heading"><span class="dot"></span><strong class="greeting">你好</strong><button class="icon" data-action="collapse" aria-label="收起">⌄</button></div>
+      <time class="clock large-clock"></time>
+      <div class="actions"><button data-action="alert">试试提醒</button><button data-action="expand">展开详情</button></div>
+    </section>
+    <section id="large" class="view">
+      <div class="heading"><span class="dot"></span><strong class="greeting">你好</strong><button class="icon" data-action="collapse" aria-label="收起">⌄</button></div>
+      <time class="clock large-clock"></time>
+      <p>插件已就绪。你可以从这个页面开始制作自己的灵动岛插件。</p>
+      <div class="actions"><button data-action="alert">试试提醒</button></div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

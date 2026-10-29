@@ -28,12 +28,16 @@ if (fs.existsSync(dest)) { console.error(`目标已存在：${dest}`); process.e
 
 const displayName = name || id
 fs.cpSync(template, dest, { recursive: true })
+// 模板的网页源码存放在 page/，避免被仓库的 dist/ 构建产物忽略规则排除。
+// 生成的插件仍使用契约约定的 dist/ 入口。
+fs.renameSync(path.join(dest, 'page'), path.join(dest, 'dist'))
 let replaced = 0
 for (const file of walk(dest)) {
   if (!/\.(json|js|html|css|md|ps1)$/i.test(file)) continue
   const text = fs.readFileSync(file, 'utf8')
   if (!text.includes('__ID__') && !text.includes('__NAME__')) continue
-  fs.writeFileSync(file, text.replaceAll('__ID__', id).replaceAll('__NAME__', displayName), 'utf8')
+  const nameValue = file.endsWith('.json') ? JSON.stringify(displayName).slice(1, -1) : displayName
+  fs.writeFileSync(file, text.replaceAll('__ID__', id).replaceAll('__NAME__', nameValue), 'utf8')
   replaced += 1
 }
 

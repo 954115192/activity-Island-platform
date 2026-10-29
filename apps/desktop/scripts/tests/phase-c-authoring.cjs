@@ -33,6 +33,12 @@ test('脚手架生成插件（占位符已替换）', () => {
   assert.ok(app.includes('hello-probe 已接入契约'), 'id 应该被写进源码')
 })
 
+test('名称包含引号时仍能生成合法清单', () => {
+  execFileSync(process.execPath, [path.join(repo, 'scripts', 'new-plugin.mjs'), 'quoted-name', '我的"插件', devRoot], { stdio: 'pipe' })
+  const manifest = JSON.parse(fs.readFileSync(path.join(devRoot, 'quoted-name', 'plugin.json'), 'utf8'))
+  assert.equal(manifest.name, '我的"插件')
+})
+
 // 2) 安装（记录源码目录 → 之后可热重载）
 const manager = new PluginManager([userRoot], userRoot)
 manager.discover()
@@ -80,7 +86,9 @@ test('打包 .islandplugin（zip 内含 plugin.json 与 dist）', () => {
 // 6) 从包安装（宿主用 Expand-Archive 解开后按普通目录安装）
 test('从 .islandplugin 解包并安装', () => {
   const extract = path.join(sandbox, 'extract')
-  execFileSync('pwsh', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${packOut}' -DestinationPath '${extract}' -Force`], { stdio: 'pipe' })
+  const zipPath = path.join(sandbox, 'package.zip')
+  fs.copyFileSync(packOut, zipPath)
+  execFileSync('pwsh', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${extract.replace(/'/g, "''")}' -Force`], { stdio: 'pipe' })
   const root = [extract, ...fs.readdirSync(extract, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => path.join(extract, e.name))]
     .find(dir => fs.existsSync(path.join(dir, 'plugin.json')))
   assert.ok(root, '解出来的目录里应有 plugin.json')
