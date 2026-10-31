@@ -10,7 +10,7 @@
     "dev": "node scripts/dev.mjs",
     "build": "npm run build:renderer && npm run build:electron",
     "build:renderer": "vite build",
-    "build:electron": "tsc -p tsconfig.electron.json",
+    "build:electron": "tsc -p tsconfig.electron.json && node scripts/build-electron.mjs",
     "start": "electron .",
     "new-plugin": "node scripts/new-plugin.mjs",
     "icons": "node scripts/make-icons.mjs",
@@ -36,7 +36,8 @@
     "test:transfer-ui": "npm run build && electron scripts/tests/transfer-ui.cjs",
     "test:notification-encoding": "node scripts/tests/notification-encoding.cjs",
     "build:listener": "dotnet publish tools/notify-listener/notify-listener.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o build/notify-listener",
-    "build:all": "npm run build:listener && npm run build"
+    "build:all": "npm run build:listener && npm run build",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.electron.json"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
@@ -44,7 +45,10 @@
     "electron-builder": "^26.0.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
-    "wait-on": "^8.0.1"
+    "wait-on": "^8.0.1",
+    "esbuild": "^0.25.12",
+    "@activity-island/platform-contracts": "0.1.0",
+    "@activity-island/platform-services": "0.1.0"
   },
   "dependencies": {
     "selfsigned": "^2.4.1"

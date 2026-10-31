@@ -55,7 +55,7 @@ HTTPS 使用本机持久证书。发现的证书指纹用于后续连接校验�
 
 - 公共契约：`packages/platform-contracts/src/transfer.ts`，版本 1。
 - Node 桌面传输服务：`apps/desktop/electron/transfers/service.ts`，不依赖 Electron UI。
-- 桌面契约副本：`apps/desktop/electron/transfers/contracts.ts`，与公共契约同步；用于当前独立 CommonJS 构建。
+- 桌面契约兼容导出：`apps/desktop/electron/transfers/contracts.ts`；唯一来源是 `packages/platform-contracts/src/transfer.ts`，通过共享 CommonJS 构建供桌面消费。
 - 拖放和窗口编排：桌面宿主及 preload。文件传输页面使用独立受限 IPC，其他插件页面不能调用传输管理接口。
 - 内置界面：`apps/desktop/modules/file-transfer/`，无插件清单，复用宿主动画裁剪。
 

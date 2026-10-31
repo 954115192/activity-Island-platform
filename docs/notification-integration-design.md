@@ -164,16 +164,16 @@ Electron 主进程无法直接调用 WinRT，采用独立 C# 伴生进程：
 
 | 职责 | 位置 |
 |---|---|
-| 通知管道、策略、历史 | `apps/desktop/electron/notifications/`（同步自 `packages/platform-services`） |
+| 通知管道、策略、历史 | `packages/platform-services/src/notification/`（桌面通过兼容导出引用） |
 | Windows 通知监听 | `apps/desktop/electron/notifications/windows-source.ts` + `resources/notifications/listener.ps1` |
-| 本地触发接口 | `apps/desktop/electron/notifications/local-trigger.ts`（Node HTTP，回环绑定） |
+| 本地触发接口 | `packages/platform-services/src/notification/sources/local-trigger.ts`（Node HTTP） |
 | 内置展示模块 | `apps/desktop/modules/system-notifications/`（小岛预览、中岛详情） |
 | 通知历史管理器 | 托盘右键「通知历史」→ `modules/system-notifications/history.html` |
-| 组装与 IPC | `apps/desktop/electron/main.ts`（内置模块根、设置同步、生命周期、托盘入口） |
+| 组装与 IPC | `electron/main.ts`（组装与生命周期）+ `electron/notifications/ipc.ts`（通知 IPC） |
 
-两点维护约束：
+维护约束：
 
-1. **双份源码**。Electron 主进程编译为 CommonJS，无法直接消费 ESM 源码包，因此 `electron/notifications/` 是 `packages/platform-services/src/notification/` 的同步副本（文件头有标注）；`packages/` 那份是被测试覆盖的规范源，两边契约变更需同步。
+1. **单一实现**。通知业务和历史存储统一维护在 `packages/platform-services`，契约统一维护在 `packages/platform-contracts`。`electron/notifications/` 原副本只保留兼容导出；`scripts/build-electron.mjs` 将 `electron/shared/platform.ts` 及其工作区依赖打包为一个 CommonJS 模块，放进 `dist-electron/shared/platform.js`。桌面其他模块保持原 CommonJS 路径及导出语义，安装包无需访问仓库源码。
 2. **内置模块不是插件**。`modules/` 作为额外根目录注册进 `PluginManager`，发现后标记为内置：不可卸载、不可被用户目录同 id 覆盖、不参与源码热重载。它复用岛的视图运行时（三态布局、提醒仲裁、设置表单），但数据由主进程直接提供，不经过后台脚本。
 3. **listener.ps1 必须在 asar 之外**。PowerShell 无法读取 asar 内文件，因此脚本走 `extraResources` 落到 `resources/notifications/`。
 

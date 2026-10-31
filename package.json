@@ -11,10 +11,11 @@
   "scripts": {
     "dev": "npm run dev --workspace dynamic-island-host",
     "build": "npm run build --workspaces --if-present",
-    "typecheck": "tsc -p packages/platform-contracts && tsc -p packages/platform-services && tsc -p tests",
+    "typecheck": "tsc -p packages/platform-contracts && tsc -p packages/platform-services && tsc -p tests && npm run typecheck --workspace dynamic-island-host",
     "test": "node --test --experimental-strip-types \"tests/**/*.test.ts\"",
     "demo": "node --experimental-strip-types tools/notification-demo.ts",
-    "lint": "npm run lint --workspaces --if-present"
+    "lint": "npm run lint --workspaces --if-present",
+    "test:desktop": "npm run build:electron --workspace dynamic-island-host && npm run test:contract --workspace dynamic-island-host && node apps/desktop/scripts/tests/zip-unit.cjs && node --test apps/desktop/scripts/tests/platform-runtime.cjs apps/desktop/scripts/tests/transfer-service.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

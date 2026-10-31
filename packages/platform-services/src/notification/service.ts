@@ -26,8 +26,13 @@ import type { NotificationSource } from './sources/source.ts'
 
 /** 历史查询与撤回能力：本地触发接口等内部使用方依赖此子集 */
 export interface NotificationHistoryAccess {
-  ingestEntry(payload: NotificationPayload): Promise<NotificationIngestResult>
+  ingestEntry(payload: NotificationPayload, options?: IngestOptions): Promise<NotificationIngestResult>
   dismissHistory(eventId: string): Promise<boolean>
+}
+
+export interface IngestOptions {
+  /** Backfill history without dispatching a new alert. */
+  suppressAlert?: boolean
 }
 
 export interface NotificationIngestResult {
@@ -117,7 +122,7 @@ export class NotificationServiceImpl implements NotificationService {
     return (await this.ingestEntry(payload)).event
   }
 
-  async ingestEntry(payload: NotificationPayload): Promise<NotificationIngestResult> {
+  async ingestEntry(payload: NotificationPayload, options: IngestOptions = {}): Promise<NotificationIngestResult> {
     const normalized = normalizePayload(payload)
     const now = this.clock()
 
@@ -149,7 +154,7 @@ export class NotificationServiceImpl implements NotificationService {
     }
     this.emitEvent(record)
 
-    if (shouldAlert(this.policy, normalized, now)) {
+    if (!options.suppressAlert && shouldAlert(this.policy, normalized, now)) {
       const alert: NotificationAlert = {
         event,
         ttlSeconds: normalized.ttlSeconds ?? this.defaultTtl[normalized.level],
@@ -221,12 +226,20 @@ export class NotificationServiceImpl implements NotificationService {
   }
 
   private findDeduped(payload: NotificationPayload, now: Date): { eventId: string } | undefined {
-    const seen = this.dedupeIndex.get(dedupeIndexKey(payload))
+    const key = dedupeIndexKey(payload)
+    let seen = this.dedupeIndex.get(key)
+    if (!seen) {
+      // 内存索引未命中时查历史：应用重启后监听脚本回填的存量通知，能和旧记录合并
+      const record = this.history.findLatestByDedupeKey(payload)
+      if (record) seen = { eventId: record.event.eventId, at: Date.parse(record.event.occurredAt) }
+    }
     if (!seen) return undefined
     if (now.getTime() - seen.at >= this.dedupeWindowMs) {
-      this.dedupeIndex.delete(dedupeIndexKey(payload))
+      this.dedupeIndex.delete(key)
       return undefined
     }
+    // 合并后刷新窗口起点（滑动窗口），持续重复的推送始终折叠到同一条
+    this.dedupeIndex.set(key, { eventId: seen.eventId, at: now.getTime() })
     return seen
   }
 
@@ -268,7 +281,7 @@ function normalizePayload(payload: NotificationPayload): NotificationPayload {
   const normalized: NotificationPayload = {
     ...payload,
     appId: appId.slice(0, APP_ID_MAX),
-    appName: textOf(payload.appName).slice(0, APP_NAME_MAX) || appId.slice(0, APP_NAME_MAX),
+    appName: textOf(payload.appName).trim().slice(0, APP_NAME_MAX) || appId.slice(0, APP_NAME_MAX),
     title: title.slice(0, TITLE_MAX),
     body: textOf(payload.body).slice(0, BODY_MAX),
     level,

@@ -60,3 +60,12 @@ tools/                    本地开发与发布工具
 - [开发方法与完成标准](docs/development-method.md)
 - [架构决策：产品形态与职责边界](docs/adr-0001-product-shape.md)
 
+
+## 工程验证
+
+- `npm run typecheck`：平台契约、服务、测试、桌面渲染端和 Electron 主进程的类型检查。
+- `npm test`：平台契约及通知服务集成测试。
+- `npm run test:desktop`：构建主进程，验证插件契约、安装打包、共享运行时、工作台 HTTP/命令与 LocalSend 传输。
+- `npm run build`：生成渲染端资源及可独立分发的 Electron CommonJS 代码。
+
+Electron 业务模块通过 `electron/shared/platform.ts` 使用平台包。修改共享服务无需同步桌面副本。构建细节和本次检查的遗留问题见 [架构重构记录](docs/architecture-refactor-2026-11-01.md)。

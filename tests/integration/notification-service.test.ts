@@ -247,3 +247,32 @@ test('非法载荷抛出结构化错误', async () => {
     return error instanceof ServiceFault && error.code === 'invalid-request'
   })
 })
+
+test('静默回填写入历史但不产生提醒，后续新通知正常提醒', async () => {
+  const service = new NotificationServiceImpl()
+  const alerts = collectAlerts(service)
+  await service.ingestEntry(payload(), { suppressAlert: true })
+  assert.equal((await service.queryHistory()).total, 1)
+  assert.equal(alerts.length, 0)
+  await service.ingestEntry(payload())
+  assert.equal(alerts.length, 1)
+})
+
+test('服务重建后从历史恢复去重，持续重复使用滑动窗口', async () => {
+  const time = createClock()
+  const history = new InMemoryHistoryStore({ clock: time.clock })
+  const first = new NotificationServiceImpl({ history, clock: time.clock })
+  const input = payload({ dedupeKey: 'restart' })
+  const original = await first.ingestEntry(input)
+  time.advance(30_000)
+  const restarted = new NotificationServiceImpl({ history, clock: time.clock })
+  const alerts = collectAlerts(restarted)
+  assert.equal((await restarted.ingestEntry(input)).event.eventId, original.event.eventId)
+  time.advance(40_000)
+  assert.equal((await restarted.ingestEntry(input)).deduped, true)
+  assert.equal((await restarted.queryHistory()).total, 1)
+  assert.equal(alerts.length, 0)
+  time.advance(60_000)
+  assert.equal((await restarted.ingestEntry(input)).deduped, false)
+  assert.equal(alerts.length, 1)
+})

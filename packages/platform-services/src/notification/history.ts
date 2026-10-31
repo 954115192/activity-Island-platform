@@ -11,24 +11,21 @@ import { dirname } from 'node:path'
 export interface HistoryStore {
   append(event: DomainEvent<NotificationPayload>): NotificationRecord
   get(eventId: string): NotificationRecord | undefined
-  /** 按 patch 更新记录中已定义的字段 */
   update(eventId: string, patch: Partial<Omit<NotificationRecord, 'event'>>): NotificationRecord | undefined
-  /** dedupeKey 命中时累加重复计数 */
   bumpRepeat(eventId: string): NotificationRecord | undefined
+  /** dedupeKey 命中查找：跨服务实例（应用重启后的存量回填）也能与旧记录合并 */
+  findLatestByDedupeKey(payload: NotificationPayload): NotificationRecord | undefined
   query(query?: NotificationHistoryQuery): NotificationHistoryPage
   clear(): void
   size(): number
 }
 
 export interface InMemoryHistoryStoreOptions {
-  /** 保留上限，超出时裁掉最旧的记录 */
   maxRecords?: number
-  /** 记录最大年龄，超过即清理 */
   maxAgeMs?: number
   clock?: () => Date
 }
 
-/** 内存历史存储：新记录在前。持久化由 PlatformStorage 或文件实现承担。 */
 export class InMemoryHistoryStore implements HistoryStore {
   protected readonly records: NotificationRecord[] = []
   private readonly maxRecords: number
@@ -42,7 +39,6 @@ export class InMemoryHistoryStore implements HistoryStore {
   }
 
   append(event: DomainEvent<NotificationPayload>): NotificationRecord {
-    // sensitive 载荷不落历史，只保留摘要字段
     const payload: NotificationPayload =
       event.sensitivity === 'sensitive' && event.payload.raw !== undefined
         ? { ...event.payload, raw: undefined }
@@ -73,6 +69,18 @@ export class InMemoryHistoryStore implements HistoryStore {
     return record
   }
 
+  findLatestByDedupeKey(payload: NotificationPayload): NotificationRecord | undefined {
+    if (!payload.dedupeKey) return undefined
+    return this.records.find((record) => {
+      const candidate = record.event.payload
+      return (
+        candidate.dedupeKey === payload.dedupeKey &&
+        candidate.sourceKind === payload.sourceKind &&
+        candidate.appId === payload.appId
+      )
+    })
+  }
+
   query(query: NotificationHistoryQuery = {}): NotificationHistoryPage {
     const search = query.search?.trim().toLowerCase() ?? ''
     const filtered = this.records.filter((record) => {
@@ -101,12 +109,10 @@ export class InMemoryHistoryStore implements HistoryStore {
     return this.records.length
   }
 
-  /** 当前全部记录（新记录在前），供持久化实现导出 */
   exportAll(): NotificationRecord[] {
     return [...this.records]
   }
 
-  /** 从持久化数据恢复；仅供存储实现内部使用 */
   restore(records: NotificationRecord[]): void {
     this.records.length = 0
     this.records.push(...records)
@@ -126,16 +132,12 @@ export class InMemoryHistoryStore implements HistoryStore {
 
 export interface JsonFileHistoryStoreOptions extends InMemoryHistoryStoreOptions {
   filePath: string
-  /** 变更后延迟落盘的毫秒数，合并连续写入 */
   saveDelayMs?: number
 }
 
 const HISTORY_FILE_VERSION = 1
 
-/**
- * JSON 文件历史存储：内存存储 + 延迟全量落盘（临时文件 + 原子替换）。
- * PlatformStorage 落地后将由其接管持久化职责。
- */
+/** JSON 文件历史存储：内存 + 延迟全量落盘（临时文件 + 原子替换）。 */
 export class JsonFileHistoryStore implements HistoryStore {
   private readonly inner: InMemoryHistoryStore
   private readonly filePath: string
@@ -155,7 +157,7 @@ export class JsonFileHistoryStore implements HistoryStore {
     try {
       text = readFileSync(this.filePath, 'utf8')
     } catch {
-      return // 文件不存在即空历史
+      return
     }
     try {
       const parsed = JSON.parse(text) as { version?: number; records?: NotificationRecord[] }
@@ -176,7 +178,6 @@ export class JsonFileHistoryStore implements HistoryStore {
     this.saveTimer.unref?.()
   }
 
-  /** 立即落盘；进程退出前可调用 */
   saveNow(): void {
     const data = { version: HISTORY_FILE_VERSION, records: this.inner.exportAll() }
     const temporary = `${this.filePath}.tmp`
@@ -204,6 +205,10 @@ export class JsonFileHistoryStore implements HistoryStore {
     const record = this.inner.bumpRepeat(eventId)
     if (record) this.scheduleSave()
     return record
+  }
+
+  findLatestByDedupeKey(payload: NotificationPayload): NotificationRecord | undefined {
+    return this.inner.findLatestByDedupeKey(payload)
   }
 
   query(query?: NotificationHistoryQuery): NotificationHistoryPage {

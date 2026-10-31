@@ -3,7 +3,6 @@ import { NOTIFICATION_CONTRACT_VERSION } from '@activity-island/platform-contrac
 import type {
   NotificationAction,
   NotificationLevel,
-  NotificationPayload,
   NotificationSourceState,
   NotificationSourceStatus,
   ServiceErrorCode,
@@ -48,12 +47,16 @@ export const LOCAL_TRIGGER_DEFAULTS = {
   rateLimitPerMinute: 120,
 } as const
 
+export const DEFAULT_LOCAL_TRIGGER_PORT: number = LOCAL_TRIGGER_DEFAULTS.port
+
 /** 可访问范围：仅本机 / 局域网内所有设备 */
 export type LocalTriggerScope = 'local' | 'lan'
 
 export function hostForScope(scope: LocalTriggerScope): string {
   return scope === 'lan' ? LOCAL_TRIGGER_DEFAULTS.lanHost : LOCAL_TRIGGER_DEFAULTS.host
 }
+
+export type TriggerIngress = NotificationHistoryAccess
 
 export interface LocalTriggerOptions {
   ingress: NotificationHistoryAccess

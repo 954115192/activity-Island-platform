@@ -1,10 +1,15 @@
-import { app, BrowserWindow, WebContentsView, clipboard, dialog, ipcMain, Menu, nativeImage, net, Notification, screen, shell, Tray } from 'electron'
+import { registerTransferIpc } from './transfers/ipc'
+import { exportArtifactPackage } from './plugins/package-export'
+import { registerWorkbenchIpc } from './workbench/ipc'
+import { clampNumber } from './shared/numbers'
+import { registerNotificationIpc } from './notifications/ipc'
+import { createUpdateChecker } from './updates/checker'
+import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } from 'electron'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
-import { request as httpRequest } from 'node:http'
 import { EventBus } from './events/event-bus'
 import { IntentArbiter } from './island/intent-arbiter'
 import type { AlertLevel } from './island/intent-arbiter'
@@ -20,9 +25,8 @@ import { PluginViewManager } from './plugins/plugin-view-manager'
 import { PluginWatcher } from './plugins/plugin-watcher'
 import { ForegroundFullscreenMonitor } from './window/foreground-fullscreen'
 import { BUILTIN_NOTIFICATIONS_ID, NotificationModule } from './notifications/module'
-import { parseTestTarget } from './notifications/test-target'
 import { LocalSendService } from './transfers/service'
-import { extractZip, isZipFile, readZipEntries, zipDirectory } from './plugins/zip'
+import { extractZip, isZipFile, zipDirectory } from './plugins/zip'
 import { allCapabilities, CAPABILITY_LABELS, checkCapability, normalizeCapabilities, WORKBENCH_TRUST_NOTICE, type WorkbenchCapability } from './workbench/capabilities'
 import { BUILTIN_WORKBENCH_ID, WorkbenchManager, type WorkbenchDescriptor } from './workbench/workbench-manager'
 import type { IslandMode, PluginDescriptor, PluginManifest, PluginMode, PluginTool, PluginToolView } from './plugins/types'
@@ -194,8 +198,6 @@ const arbiter = new IntentArbiter({
   sendIntent: (pluginId, message) => viewManager?.sendIntent(pluginId, message),
 })
 let hitRegion = { x: 0, y: 0, width: SMALL_DEFAULT.width, height: SMALL_DEFAULT.height, radius: 23, interactive: true }
-let previousCpu: { idle: number; total: number } | null = null
-let previousNetwork: { received: number; sent: number; at: number } | null = null
 
 function appRoot(): string { return app.isPackaged ? app.getAppPath() : process.cwd() }
 /** Run a cached copy in development so publishing a new listener never replaces a running executable. */
@@ -631,86 +633,8 @@ function publicIslandSettings() { return { ...islandSettings, disabledPlugins: [
 
 // ---------------------------------------------------------------- 更新检查
 // 只读 GitHub Releases 的 latest，不自动下载安装；有新版时由「关于」页给出跳转。
-const UPDATE_REPO = '954115192/Activity-island'
-interface UpdateStatus {
-  ok: boolean
-  currentVersion: string
-  latestVersion?: string
-  hasUpdate?: boolean
-  releaseUrl?: string
-  publishedAt?: string | null
-  checkedAt: number
-  error?: string
-}
-let lastUpdateStatus: UpdateStatus | null = null
-let updateCheckPromise: Promise<UpdateStatus> | null = null
-
-function versionParts(value: string): number[] {
-  return String(value ?? '').replace(/^v/i, '').split('-')[0].split('.').map(part => {
-    const parsed = Number.parseInt(part, 10)
-    return Number.isFinite(parsed) ? parsed : 0
-  })
-}
-function versionNewer(candidate: string, current: string): boolean {
-  const a = versionParts(candidate)
-  const b = versionParts(current)
-  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
-    const left = a[index] ?? 0
-    const right = b[index] ?? 0
-    if (left !== right) return left > right
-  }
-  return false
-}
-async function checkForUpdates(manual: boolean): Promise<UpdateStatus> {
-  if (updateCheckPromise) return updateCheckPromise
-  updateCheckPromise = (async () => {
-    const currentVersion = app.getVersion()
-    const checkedAt = Date.now()
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 12000)
-    try {
-      const response = await net.fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`, {
-        headers: { 'User-Agent': `Activity-Island/${currentVersion}`, Accept: 'application/vnd.github+json' },
-        signal: controller.signal,
-      })
-      if (response.status === 404) {
-        // 仓库还没发布 Release：不算失败，只是没有可比较的版本。
-        const status: UpdateStatus = {
-          ok: true, currentVersion, latestVersion: currentVersion, hasUpdate: false,
-          releaseUrl: `https://github.com/${UPDATE_REPO}/releases`, checkedAt,
-        }
-        lastUpdateStatus = status
-        return status
-      }
-      if (!response.ok) throw new Error(`GitHub 返回 HTTP ${response.status}`)
-      const payload = await response.json() as { tag_name?: string; html_url?: string; published_at?: string }
-      const latestVersion = String(payload.tag_name ?? '').replace(/^v/i, '')
-      if (!latestVersion) throw new Error('Release 里没有版本号')
-      const status: UpdateStatus = {
-        ok: true, currentVersion, latestVersion,
-        hasUpdate: versionNewer(latestVersion, currentVersion),
-        releaseUrl: payload.html_url ?? `https://github.com/${UPDATE_REPO}/releases`,
-        publishedAt: payload.published_at ?? null,
-        checkedAt,
-      }
-      lastUpdateStatus = status
-      if (manual) pluginLogger?.append('_host', 'info', `检查更新：当前 v${currentVersion}，最新 v${latestVersion}`)
-      return status
-    } catch (error) {
-      const status: UpdateStatus = {
-        ok: false, currentVersion, checkedAt,
-        error: String((error as Error)?.message ?? error),
-      }
-      lastUpdateStatus = status
-      if (manual) pluginLogger?.append('_host', 'warn', `检查更新失败：${status.error}`)
-      return status
-    } finally {
-      clearTimeout(timeout)
-      updateCheckPromise = null
-    }
-  })()
-  return updateCheckPromise
-}
+const updateChecker = createUpdateChecker((level, message) => pluginLogger?.append('_host', level, message))
+const checkForUpdates = updateChecker.checkForUpdates
 
 /**
  * 开机启动写的是 Windows 登录项（HKCU\...\Run），不写任何自启动服务。
@@ -979,7 +903,6 @@ function consoleVisible(): boolean {
 const WORKBENCH_SIZE_DEFAULT = { width: 1040, height: 700 }
 const WORKBENCH_SIZE_RANGE = { minWidth: 720, maxWidth: 1280, minHeight: 480, maxHeight: 860 }
 /** 小于这个像素差就当"自适应回环"丢掉（见 workbench:resize 的注释）。 */
-const WORKBENCH_RESIZE_EPSILON = 4
 let workbenchSizeRequest: { width: number; height: number } = { ...WORKBENCH_SIZE_DEFAULT }
 
 function workbenchSize(): { width: number; height: number } {
@@ -1539,7 +1462,7 @@ async function showActive(plugin: PluginDescriptor, mode: Extract<IslandMode, 'e
   // 已经在收起态持续渲染的页面不要再次 hide/show；只在原生裁剪窗后切模式，
   // 否则 Chromium 合成器会丢掉这一次展开的首帧。冷页面才走隐藏等待握手。
   viewManager.prepare(plugin.manifest.id, pluginMode, geometry, { preserveVisibility: viewManager.isShown(plugin.manifest.id) })
-  const ready = await viewManager.waitForModeReady(plugin.manifest.id, pluginMode)
+  await viewManager.waitForModeReady(plugin.manifest.id, pluginMode)
   if (serial !== transitionSerial) return
   for (const item of runtimeViews()) if (item.manifest.id !== plugin.manifest.id) viewManager.hide(item.manifest.id)
   hideWorkbench()
@@ -1828,113 +1751,6 @@ function workbenchGuard(event: Electron.IpcMainInvokeEvent | Electron.IpcMainEve
 function workbenchLogId(): string { return `__workbench__${activeWorkbenchId}` }
 
 /** http 返回体上限：防止一个工作台把主进程内存吃满。 */
-const WORKBENCH_HTTP_MAX_BYTES = 2 * 1024 * 1024
-/** run 的 stdout/stderr 各自上限。 */
-const WORKBENCH_RUN_MAX_BYTES = 256 * 1024
-
-function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return fallback
-  return Math.max(min, Math.min(max, Math.round(numeric)))
-}
-
-/**
- * 打开网址 / 程序 / 文件 / 文件夹。
- *
- * 以前这里只调 `shell.openPath` 并**忽略返回值、恒返回 `{ok:true}`**，于是：
- * 填一个网址 → 界面显示 🔗 → 点了没反应 → 还提示成功（`openPath` 开不了网址，要 `openExternal`）。
- * 现在按 scheme 分流，并且把失败如实报上来。
- */
-async function workbenchOpen(target: string): Promise<{ ok: boolean; kind?: 'url' | 'path'; error?: string }> {
-  const raw = String(target ?? '').trim()
-  if (!raw) return { ok: false, error: '没有要打开的目标' }
-  if (/^https?:\/\//i.test(raw) || /^mailto:/i.test(raw)) {
-    try {
-      await shell.openExternal(raw)
-      return { ok: true, kind: 'url' }
-    } catch (error) {
-      return { ok: false, error: `打开网址失败：${String((error as Error)?.message ?? error)}` }
-    }
-  }
-  // shell.openPath 失败时**返回错误字符串**而不是抛异常，必须自己看返回值。
-  const failure = await shell.openPath(raw)
-  if (failure) return { ok: false, error: failure, kind: 'path' }
-  return { ok: true, kind: 'path' }
-}
-
-/** 通用网络请求：主进程发出，不受 CORS 限制，因此也能访问 127.0.0.1 上的本地服务。 */
-async function workbenchHttp(url: string, options: { method?: unknown; headers?: unknown; body?: unknown; timeoutMs?: unknown } = {}): Promise<Record<string, unknown>> {
-  let parsed: URL
-  try { parsed = new URL(String(url ?? '')) } catch { return { ok: false, error: `不是合法的网址：${String(url ?? '')}` } }
-  // 只允许 http/https：挡掉 file:// 之类经由 fetch 的意外读取。
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return { ok: false, error: `只允许 http/https（收到 ${parsed.protocol}）` }
-  const timeoutMs = clampNumber(options.timeoutMs, 1000, 120000, 15000)
-  const method = typeof options.method === 'string' && options.method.trim() ? options.method.trim().toUpperCase() : 'GET'
-  const headers = options.headers && typeof options.headers === 'object' ? options.headers as Record<string, string> : undefined
-  const body = typeof options.body === 'string' ? options.body : undefined
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  const startedAt = Date.now()
-  try {
-    const response = await fetch(parsed, { method, headers, body, signal: controller.signal })
-    const raw = Buffer.from(await response.arrayBuffer())
-    const truncated = raw.length > WORKBENCH_HTTP_MAX_BYTES
-    return {
-      ok: response.ok,
-      status: response.status,
-      statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries()),
-      body: raw.subarray(0, WORKBENCH_HTTP_MAX_BYTES).toString('utf8'),
-      truncated,
-      ms: Date.now() - startedAt,
-    }
-  } catch (error) {
-    const reason = (error as Error)?.name === 'AbortError' ? `请求超时（${timeoutMs}ms）` : String((error as Error)?.message ?? error)
-    return { ok: false, error: reason, ms: Date.now() - startedAt }
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
-/**
- * 执行本机命令 / 脚本。默认**不经 shell**（`shell: true` 要显式开），
- * 避免把用户填的内容当成 shell 语法解释。
- */
-async function workbenchRun(command: string, args: string[] = [], options: { cwd?: unknown; timeoutMs?: unknown; shell?: unknown } = {}): Promise<Record<string, unknown>> {
-  const line = String(command ?? '').trim()
-  if (!line) return { ok: false, error: '没有要执行的命令' }
-  const timeoutMs = clampNumber(options.timeoutMs, 1000, 600000, 60000)
-  const cwd = typeof options.cwd === 'string' && options.cwd && fs.existsSync(options.cwd) ? options.cwd : undefined
-  const useShell = options.shell === true
-  const safeArgs = Array.isArray(args) ? args.map(value => String(value)) : []
-  return await new Promise<Record<string, unknown>>(resolve => {
-    let stdout = ''
-    let stderr = ''
-    let settled = false
-    const finish = (payload: Record<string, unknown>): void => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      resolve(payload)
-    }
-    let child: ReturnType<typeof spawn>
-    try {
-      child = spawn(line, safeArgs, { cwd, windowsHide: true, shell: useShell, stdio: ['ignore', 'pipe', 'pipe'] })
-    } catch (error) {
-      resolve({ ok: false, error: String((error as Error)?.message ?? error), code: null, stdout: '', stderr: '' })
-      return
-    }
-    const timer = setTimeout(() => {
-      try { child.kill() } catch { /* 忽略 */ }
-      finish({ ok: false, error: `执行超时（${timeoutMs}ms）`, code: null, stdout: stdout.slice(0, WORKBENCH_RUN_MAX_BYTES), stderr: stderr.slice(0, WORKBENCH_RUN_MAX_BYTES) })
-    }, timeoutMs)
-    child.stdout?.on('data', chunk => { if (stdout.length < WORKBENCH_RUN_MAX_BYTES) stdout += String(chunk) })
-    child.stderr?.on('data', chunk => { if (stderr.length < WORKBENCH_RUN_MAX_BYTES) stderr += String(chunk) })
-    child.on('error', error => finish({ ok: false, error: String((error as Error)?.message ?? error), code: null, stdout: '', stderr: '' }))
-    child.on('close', code => finish({ ok: code === 0, code, stdout: stdout.slice(0, WORKBENCH_RUN_MAX_BYTES), stderr: stderr.slice(0, WORKBENCH_RUN_MAX_BYTES) }))
-  })
-}
-
 /** 工作台自己的存储：复用插件存储（按 workbench id 分命名空间）。 */
 function workbenchStorageKey(id: string): string { return `__workbench__${id}` }
 function workbenchStorageId(): string { return workbenchStorageKey(activeWorkbenchId) }
@@ -2039,52 +1855,13 @@ async function installPackage(filePath: string): Promise<{ kind: 'plugin' | 'wor
   }
 }
 
-/** 打包时要跳过的目录名（都不是插件运行需要的东西）。 */
-const PACK_SKIP_DIRS = new Set(['node_modules', '.git', '.idea', '.vscode'])
-/** 运行时垃圾与编辑器临时文件：打进包里只会让体积变大、还可能误导对方。 */
-const PACK_SKIP_FILE = /(\.log|\.tmp|\.swp|\.bak|\.orig)$/i
-const PACK_SKIP_NAMES = new Set(['state.json', 'state.js'])
-
-/**
- * 把产物目录打包成 `.islandplugin`（本质是 zip），对方用「导入插件包」就能直接装。
- * 插件和控制台**共用这一个实现**（清单文件名不同而已）—— 两者都是"可分发"的东西，
- * 打包规则没理由分两套。
- *
- * 用宿主自己的 zip 实现，**不调用 PowerShell**：Compress-Archive 实测会随调用形态与
- * 目标扩展名给出不一致的结果（`.islandplugin` 有时被拒、无扩展名时静默不产出文件），
- * 而它的 stderr 又容易被吞掉，用户只看到一个没有信息量的 "exit 1"。
- */
-function exportArtifactPackage(options: { rootDir: string; manifestFile: string; entry: string; label: string; logId: string; version: string }, targetPath: string): { ok: boolean; path?: string; bytes?: number; entries?: number; error?: string } {
-  const { rootDir, manifestFile, entry, label, logId, version } = options
-  if (!fs.existsSync(path.join(rootDir, manifestFile))) return { ok: false, error: `目录里没有 ${manifestFile}` }
-  try {
-    const bytes = zipDirectory(rootDir, targetPath, {
-      skipDir: name => name.startsWith('.') || PACK_SKIP_DIRS.has(name),
-      skipFile: name => name.startsWith('.') || PACK_SKIP_NAMES.has(name) || PACK_SKIP_FILE.test(name),
-    })
-    // 打完之后复核一遍：解开来装不上就白搭了。
-    const entries = readZipEntries(targetPath).map(item => item.name)
-    const missing = [manifestFile, String(entry ?? '')].filter(name => name && !entries.includes(name))
-    if (missing.length) {
-      fs.rmSync(targetPath, { force: true })
-      return { ok: false, error: `打包内容缺少必需文件：${missing.join('、')}` }
-    }
-    pluginLogger?.append(logId, 'info', `已导出${label} v${version} → ${targetPath}（${Math.round(bytes / 1024)} KB，${entries.length} 个文件）`)
-    return { ok: true, path: targetPath, bytes, entries: entries.length }
-  } catch (error) {
-    // 失败时不要留下半成品，否则用户会以为"包已经生成了"。
-    try { fs.rmSync(targetPath, { force: true }) } catch { /* 忽略 */ }
-    return { ok: false, error: `打包失败：${String((error as Error)?.message ?? error)}` }
-  }
-}
-
 async function exportPluginPackage(pluginId: string, targetPath: string): Promise<{ ok: boolean; path?: string; bytes?: number; entries?: number; error?: string }> {
   const plugin = pluginManager?.get(pluginId)
   if (!plugin) return { ok: false, error: '插件未加载' }
   return exportArtifactPackage({
     rootDir: plugin.rootDir, manifestFile: 'plugin.json', entry: String(plugin.manifest.entry ?? ''),
     label: '插件包', logId: pluginId, version: plugin.manifest.version,
-  }, targetPath)
+  }, targetPath, (id, message) => pluginLogger?.append(id, 'info', message))
 }
 
 async function exportWorkbenchPackage(workbenchId: string, targetPath: string): Promise<{ ok: boolean; path?: string; bytes?: number; entries?: number; error?: string }> {
@@ -2094,7 +1871,7 @@ async function exportWorkbenchPackage(workbenchId: string, targetPath: string): 
   return exportArtifactPackage({
     rootDir: descriptor.rootDir, manifestFile: 'workbench.json', entry: String(descriptor.manifest.entry ?? ''),
     label: '工作台包', logId: workbenchStorageKey(workbenchId), version: descriptor.manifest.version,
-  }, targetPath)
+  }, targetPath, (id, message) => pluginLogger?.append(id, 'info', message))
 }
 
 function createSettingsWindow(tab?: string): BrowserWindow {
@@ -2318,137 +2095,24 @@ async function openTransferPanel(request?: TransferOpenRequest): Promise<void> {
 }
 
 function installTransferIpc(): void {
-  const isTransferView = (event: Electron.IpcMainInvokeEvent) => transferView?.webContents === event.sender
-  const isDropSurface = (event: Electron.IpcMainEvent) => event.sender === mainWindow?.webContents
-    || event.sender === transferView?.webContents || event.sender === workbenchView?.webContents
-    || !!viewManager?.helloFor(event.sender)
-  ipcMain.on('transfers:open', (event, mode?: unknown) => {
-    if (event.sender !== mainWindow?.webContents && !(event.sender === workbenchView?.webContents && activeWorkbenchId === BUILTIN_WORKBENCH_ID)) return
-    if (mode === 'text') void openTransferPanel({ mode: 'text', text: clipboard.readText() })
-    else if (mode === 'files') void openTransferPanel({ mode: 'files' })
-    else void openTransferPanel()
-  })
-  ipcMain.on('host:quick-actions', event => {
-    if (event.sender !== mainWindow?.webContents || !mainWindow || mainWindow.isDestroyed()) return
-    Menu.buildFromTemplate([
-      { label: '分享剪贴板文字/链接', click: () => { void openTransferPanel({ mode: 'text', text: clipboard.readText() }) } },
-      { label: '文件传输', click: () => { void openTransferPanel({ mode: 'files' }) } },
-      { type: 'separator' },
-      { label: '通知历史', click: () => { createNotificationHistoryWindow() } },
-    ]).popup({ window: mainWindow })
-  })
-  ipcMain.on('transfers:drag', (event, entered: boolean) => {
-    if (!isDropSurface(event)) return
-    if (transferDragTimer) clearTimeout(transferDragTimer)
-    if (entered) {
-      const alreadyDragging = transferDragging
-      transferDragging = true
-      // 保持原来的原生拖放目标直至 drop；只扩大宿主外壳，防止更换 WebContents 吞掉拖放。
-      if (!transferPanelOpen && !alreadyDragging) {
-        cancelCollapse()
-        arbiter.interrupt()
-        ++transitionSerial
-        const size = { width: 420, height: 110 }
-        const stage = stageOrigin(size.width, size.height)
-        setHitRegion(stageHitRegion(stage, 28), false)
-        sendLayout('expanded', undefined, [], false, size, stage.y, [], size, false, false, false)
-        sendHost('transfers:drag-preview', true)
-        showHost()
-      }
-      transferDragTimer = setTimeout(() => { transferDragging = false; sendHost('transfers:drag-preview', false); if (!transferPanelOpen) void showRest() }, 15000)
-    } else {
-      transferDragTimer = setTimeout(() => { transferDragging = false; sendHost('transfers:drag-preview', false); if (!transferPanelOpen) void showRest() }, 250)
-    }
-  })
-  ipcMain.on('transfers:drop', (event, paths: unknown) => {
-    if (!isDropSurface(event)) return
-    if (transferDragTimer) clearTimeout(transferDragTimer)
-    transferDragging = false
-    sendHost('transfers:drag-preview', false)
-    void (async () => {
-      await openTransferPanel()
-      try { await transferService?.selectDroppedPaths(paths as string[]) }
-      catch (error) { transferView?.webContents.send('transfers:error', String((error as Error).message || error)) }
-    })()
-  })
-  ipcMain.handle('transfers:call', async (event, method: string, value: unknown) => {
-    if (!isTransferView(event) || !transferService) return { ok: false, error: '没有文件传输访问权限' }
-    try {
-      switch (method) {
-        case 'snapshot': return { ok: true, snapshot: transferService.snapshot() }
-        case 'layout': {
-          const size = value === 'text' ? { width: 640, height: 580 } : value === 'task' ? { width: 640, height: 560 } : value === 'connect' ? { width: 680, height: 700 } : { width: 680, height: 620 }
-          if (size.width === transferPanelSize.width && size.height === transferPanelSize.height) break
-          transferPanelSize = size
-          if (transferPanelOpen && viewManager) {
-            const stage = stageOrigin(size.width, size.height)
-            setHitRegion(stageHitRegion(stage, 28), false)
-            viewManager.setTransferStage(stage)
-            sendLayout('custom', undefined, [], false, size, stage.y, [], size, true)
-          }
-          break
-        }
-        case 'refresh': transferService.announce(); break
-        case 'retry': await transferService.start(); break
-        case 'connect': await transferService.connect(String(value ?? '')); break
-        case 'configure': await transferService.configure({ alias: String(value ?? '') }); break
-        case 'choose': {
-          const picked = await dialog.showOpenDialog(mainWindow!, { title: '选择要发送的文件', properties: ['openFile', 'multiSelections'] })
-          if (!picked.canceled) await transferService.selectFiles(picked.filePaths, true)
-          break
-        }
-        case 'choose-folder': {
-          const picked = await dialog.showOpenDialog(mainWindow!, { title: '选择要发送的文件夹', properties: ['openDirectory', 'multiSelections'] })
-          if (!picked.canceled) await transferService.selectFolders(picked.filePaths)
-          break
-        }
-        case 'directory': {
-          const picked = await dialog.showOpenDialog(mainWindow!, { title: '选择接收目录', defaultPath: transferService.snapshot().saveDirectory, properties: ['openDirectory', 'createDirectory'] })
-          if (!picked.canceled && picked.filePaths[0]) await transferService.configure({ saveDirectory: picked.filePaths[0] })
-          break
-        }
-        case 'send': {
-          const input = value as { id?: unknown; pin?: unknown }
-          await transferService.send(String(input?.id ?? ''), typeof input?.pin === 'string' ? input.pin : undefined)
-          break
-        }
-        case 'send-text': {
-          const input = value as { id?: unknown; text?: unknown; pin?: unknown }
-          if (typeof input?.text !== 'string') throw new Error('请输入文本')
-          await transferService.sendText(String(input.id ?? ''), input.text, typeof input.pin === 'string' ? input.pin : undefined)
-          break
-        }
-        case 'retry-send': {
-          const input = value as { id?: unknown; pin?: unknown }
-          await transferService.retrySend(String(input?.id ?? ''), typeof input?.pin === 'string' ? input.pin : undefined)
-          break
-        }
-        case 'copy-text': clipboard.writeText(transferService.textForCopy(String(value))); break
-        case 'open-text': {
-          const text = transferService.textForCopy(String(value)).trim()
-          const url = new URL(text)
-          if (!['https:', 'http:'].includes(url.protocol)) throw new Error('仅支持打开网页链接')
-          await shell.openExternal(url.href)
-          break
-        }
-        case 'accept': transferService.accept(String(value)); break
-        case 'reject': transferService.reject(String(value)); break
-        case 'cancel': transferService.cancel(String(value)); break
-        case 'clear': transferService.clearDraft(); break
-        case 'clear-history': await transferService.clearHistory(); break
-        case 'remove': transferService.removeDraftFile(String(value)); break
-        case 'reveal-file': {
-          const input = value as { id?: unknown; fileId?: unknown }
-          const target = await transferService.locationFor(String(input?.id ?? ''), typeof input?.fileId === 'string' ? input.fileId : undefined)
-          shell.showItemInFolder(target)
-          break
-        }
-        case 'folder': await shell.openPath(transferService.snapshot().saveDirectory); break
-        case 'close': hideTransferPanel(); await showRest(); break
-        default: return { ok: false, error: '未知文件传输操作' }
-      }
-      return { ok: true, snapshot: transferService.snapshot() }
-    } catch (error) { return { ok: false, error: String((error as Error).message || error) } }
+  registerTransferIpc({
+    get transferView() { return transferView },
+    get mainWindow() { return mainWindow },
+    get workbenchView() { return workbenchView },
+    get viewManager() { return viewManager },
+    get activeWorkbenchId() { return activeWorkbenchId },
+    get transferDragTimer() { return transferDragTimer },
+    set transferDragTimer(value) { transferDragTimer = value },
+    get transferDragging() { return transferDragging },
+    set transferDragging(value) { transferDragging = value },
+    get transferPanelOpen() { return transferPanelOpen },
+    get transitionSerial() { return transitionSerial },
+    set transitionSerial(value) { transitionSerial = value },
+    get transferService() { return transferService },
+    get transferPanelSize() { return transferPanelSize },
+    set transferPanelSize(value) { transferPanelSize = value },
+    get arbiter() { return arbiter },
+    openTransferPanel, createNotificationHistoryWindow, cancelCollapse, stageOrigin, stageHitRegion, setHitRegion, sendLayout, sendHost, showHost, showRest, hideTransferPanel
   })
 }
 
@@ -2573,40 +2237,6 @@ function createTray(): void {
   ]))
 }
 
-function cpuPercent(): number {
-  const totals = os.cpus().reduce((result, cpu) => {
-    const times = cpu.times
-    result.idle += times.idle
-    result.total += times.user + times.nice + times.sys + times.irq + times.idle
-    return result
-  }, { idle: 0, total: 0 })
-  const old = previousCpu
-  previousCpu = totals
-  if (!old) return 0
-  const totalDelta = totals.total - old.total
-  return totalDelta > 0 ? Math.round(Math.max(0, Math.min(100, (1 - (totals.idle - old.idle) / totalDelta) * 100))) : 0
-}
-async function networkStatus(): Promise<{ ok: boolean; downloadMbps: number; uploadMbps: number; latencyMs: number | null }> {
-  if (process.platform !== 'win32') return { ok: false, downloadMbps: 0, uploadMbps: 0, latencyMs: null }
-  return new Promise(resolve => {
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-NetAdapterStatistics | Select-Object ReceivedBytes,SentBytes | ConvertTo-Json -Compress'], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
-    let output = ''
-    child.stdout?.on('data', value => { output += String(value) })
-    const finish = () => {
-      try {
-        const parsed = JSON.parse(output.trim())
-        const rows = Array.isArray(parsed) ? parsed : [parsed]
-        const received = rows.reduce((sum, row) => sum + Number(row?.ReceivedBytes || 0), 0)
-        const sent = rows.reduce((sum, row) => sum + Number(row?.SentBytes || 0), 0)
-        const at = Date.now(); const old = previousNetwork; previousNetwork = { received, sent, at }
-        const seconds = old ? Math.max(0.001, (at - old.at) / 1000) : 1
-        resolve({ ok: true, downloadMbps: old ? Math.max(0, (received - old.received) / seconds / 1024 / 1024) : 0, uploadMbps: old ? Math.max(0, (sent - old.sent) / seconds / 1024 / 1024) : 0, latencyMs: null })
-      } catch { resolve({ ok: false, downloadMbps: 0, uploadMbps: 0, latencyMs: null }) }
-    }
-    child.on('close', finish); child.on('error', finish)
-  })
-}
-
 function wireIpc(): void {
   ipcMain.handle('host:plugins:list', () => pluginListPayload())
   ipcMain.handle('host:plugins:enabled:set', (_event, pluginId: string, enabled: boolean) => setPluginEnabled(pluginId, enabled))
@@ -2719,138 +2349,14 @@ function wireIpc(): void {
   // 插件主动握手：它的脚本可能早于宿主推送 host:hello 运行。
   ipcMain.handle('plugin:hello', event => viewManager?.helloFor(event.sender) ?? null)
 
-  // ---- 内置通知能力：只有 system-notifications 视图与历史窗口会调用 ----
-  const canManageNotificationSettings = (event: Electron.IpcMainInvokeEvent): boolean => {
-    if (settingsWindow && !settingsWindow.isDestroyed() && event.sender === settingsWindow.webContents) return true
-    const sender = viewManager?.helloFor(event.sender) as { pluginId?: string } | null
-    return sender?.pluginId === BUILTIN_NOTIFICATIONS_ID
-  }
-  ipcMain.handle('notifications:settings', event => canManageNotificationSettings(event)
-    ? ({ ok: true, values: pluginSettingsValues(BUILTIN_NOTIFICATIONS_ID), schema: notificationView?.manifest.settings ?? null })
-    : ({ ok: false, error: '没有通知设置访问权限' }))
-  ipcMain.handle('notifications:settings:set', (event, patch: Record<string, unknown>) => canManageNotificationSettings(event)
-    ? ({ ok: true, values: saveNotificationSettings(patch ?? {}) })
-    : ({ ok: false, error: '没有通知设置访问权限' }))
-  ipcMain.handle('notifications:snapshot', async (_event, limit?: number) => notificationModule?.snapshot(limit) ?? { status: null, items: [] })
-  ipcMain.handle('notifications:query', async (_event, query: Record<string, unknown>) => notificationModule?.queryHistory(query ?? {}) ?? { items: [], total: 0 })
-  ipcMain.handle('notifications:clear', async (_event, options?: { clearWindows?: boolean }) => {
-    const result = await notificationModule?.clearHistory({ clearWindows: options?.clearWindows === true })
-    return { ok: true, ...(result ?? {}) }
-  })
-  /** 清空前确认：自绘深色对话框（与岛/控制台一致），返回用户选择的清空范围。 */
-  ipcMain.handle('notifications:clear-confirm', async (_event, source: 'island' | 'history') => {
-    const windowsAvailable = notificationModule?.status().windows.access === 'allowed'
-    const parent = source === 'history' && notificationHistoryWindow && !notificationHistoryWindow.isDestroyed()
-      ? notificationHistoryWindow
-      : null
-    const action = await showClearConfirm(parent, windowsAvailable)
-    return { action }
-  })
-  ipcMain.handle('notifications:dismiss', async (_event, eventId: string) => ({ ok: await (notificationModule?.dismiss(eventId) ?? Promise.resolve(false)) }))
-  ipcMain.handle('notifications:copy-code', (event, code: unknown) => {
-    const sender = viewManager?.helloFor(event.sender) as { pluginId?: string } | null
-    if (sender?.pluginId !== BUILTIN_NOTIFICATIONS_ID || typeof code !== 'string' || !/^[A-Za-z0-9]{4,8}$/.test(code) || !/\d/.test(code)) return { ok: false }
-    try { clipboard.writeText(code); return { ok: true } } catch { return { ok: false } }
-  })
-  ipcMain.handle('notifications:copy-token', async () => {
-    const token = notificationModule?.tokenValue() ?? ''
-    if (!token) return { ok: false }
-    try { await clipboard.writeText(token) } catch { return { ok: false } }
-    return { ok: true, token }
-  })
-  ipcMain.handle('notifications:rotate-token', async () => {
-    const token = notificationModule?.rotateToken() ?? ''
-    return token ? { ok: true, token } : { ok: false }
-  })
-  ipcMain.on('notifications:confirm-reply', (_event, action: unknown) => {
-    if (action === 'app-only' || action === 'both' || action === 'cancel') clearConfirmReply?.(action)
-  })
-  ipcMain.handle('notifications:open-history', () => { createNotificationHistoryWindow(); return { ok: true } })
-  // ---- 说明页的测试工具 ----
-  // 本地接口：真的走一遍 HTTP + 令牌 + 管道，验证的是完整链路而不是内部调用。
-  ipcMain.handle('notifications:test-local', async (_event, input?: { title?: string; body?: string; level?: string; target?: string }) => {
-    const status = notificationModule?.status()
-    if (!status) return { ok: false, error: '通知模块未就绪' }
-    if (status.localTrigger.state !== 'running') return { ok: false, error: '触发接口未启用，请先在「通知」页打开' }
-
-    const target = parseTestTarget(input?.target, status.endpoint)
-    if (!target.ok) return { ok: false, error: target.error }
-
-    const payload = JSON.stringify({
-      title: input?.title || '端口测试',
-      content: input?.body || '这条通知通过真实 HTTP 接口发送，验证端口、令牌与管道的完整链路。',
-      level: testLevel(input?.level),
-      app: { id: 'test.tool', name: '测试工具' },
-    })
-    return await new Promise((resolve) => {
-      const req = httpRequest(
-        {
-          host: target.host,
-          port: target.port,
-          path: target.path,
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Content-Length': Buffer.byteLength(payload),
-            Authorization: `Bearer ${status.token}`,
-          },
-        },
-        (res) => {
-          let data = ''
-          res.setEncoding('utf8')
-          res.on('data', (chunk) => { data += chunk })
-          res.on('end', () => {
-            try {
-              const parsed = JSON.parse(data) as { ok?: boolean; eventId?: string; error?: { message?: string } }
-              if (res.statusCode === 202 && parsed.ok) resolve({ ok: true, eventId: parsed.eventId, httpStatus: res.statusCode, target: `${target.host}:${target.port}` })
-              else resolve({ ok: false, error: parsed.error?.message || `HTTP ${res.statusCode}` })
-            } catch {
-              resolve({ ok: false, error: `HTTP ${res.statusCode}` })
-            }
-          })
-        },
-      )
-      req.on('error', (error) => {
-        const code = (error as NodeJS.ErrnoException).code
-        if (code === 'ECONNREFUSED') resolve({ ok: false, error: `连接被拒绝：${target.host}:${target.port} 上没有监听（局域网模式是否已开启？防火墙是否放行？）` })
-        else if (code === 'EHOSTUNREACH' || code === 'ETIMEDOUT') resolve({ ok: false, error: `无法到达 ${target.host}:${target.port}` })
-        else resolve({ ok: false, error: String((error as Error).message || error) })
-      })
-      req.setTimeout(5000, () => { req.destroy(); resolve({ ok: false, error: '请求超时' }) })
-      req.write(payload)
-      req.end()
-    })
-  })
-  // 系统通知：发起一条真实的 Windows toast，用于验证「通知中心 → 监听 → 上岛」。
-  ipcMain.handle('notifications:test-windows', (_event, input?: { title?: string; body?: string }) => {
-    try {
-      new Notification({
-        title: input?.title || '系统通知测试',
-        body: input?.body || '这是一条真实的 Windows 通知。开发环境下若未出现在通知中心，是 AUMID 未注册所致；安装版正常。',
-      }).show()
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, error: String((error as Error)?.message ?? error) }
-    }
-  })
-  // 直接注入：跳过 HTTP 与系统通知中心，只验证展示与提醒样式，最稳定。
-  ipcMain.handle('notifications:test-ingest', async (_event, input?: { title?: string; body?: string; level?: string }) => {
-    if (!notificationModule) return { ok: false, error: '通知模块未就绪' }
-    try {
-      const result = await notificationModule.testIngest({
-        title: input?.title,
-        body: input?.body,
-        level: testLevel(input?.level),
-      })
-      return { ok: true, eventId: result.eventId }
-    } catch (error) {
-      return { ok: false, error: String((error as Error)?.message ?? error) }
-    }
-  })
-  ipcMain.handle('notifications:reveal-token', async () => {
-    const token = notificationModule?.tokenValue() ?? ''
-    try { if (token) await clipboard.writeText(token) } catch { /* 忽略 */ }
-    return { ok: Boolean(token), token }
+  registerNotificationIpc({
+    get settingsWindow() { return settingsWindow },
+    get viewManager() { return viewManager },
+    get notificationView() { return notificationView },
+    get notificationModule() { return notificationModule },
+    get notificationHistoryWindow() { return notificationHistoryWindow },
+    get clearConfirmReply() { return clearConfirmReply },
+    pluginSettingsValues, saveNotificationSettings, showClearConfirm, createNotificationHistoryWindow, testLevel
   })
   // 插件自己的日志（island.log.* / 页面未捕获异常）。
   ipcMain.on('plugin:log', (_event, pluginId: string, level: string, message: unknown) => {
@@ -2875,7 +2381,7 @@ function wireIpc(): void {
   // appVersion 一起带上：否则「关于」页只能写死版本号，发一次新版就会过期。
   ipcMain.handle('settings:get', () => ({ ...publicIslandSettings(), appVersion: app.getVersion(), plugins: plugins().map(item => item.manifest) }))
   ipcMain.handle('app:update-status', () => ({
-    ...(lastUpdateStatus ?? { currentVersion: app.getVersion(), checkedAt: 0 }),
+    ...(updateChecker.status ?? { currentVersion: app.getVersion(), checkedAt: 0 }),
     checkUpdatesOnLaunch: islandSettings.checkUpdatesOnLaunch,
   }))
   ipcMain.handle('app:check-updates', () => checkForUpdates(true))
@@ -2943,115 +2449,15 @@ function wireIpc(): void {
     if (workbenchView?.webContents === event.sender) void showCompact()
     else BrowserWindow.fromWebContents(event.sender)?.close()
   })
-  // ---------------------------------------------------------------- 工作台能力通道
-  // 全部经过 workbenchGuard：必须是工作台页面 + 声明过对应能力。
-  ipcMain.handle('workbench:capabilities', event => {
-    const denied = workbenchGuard(event, null)
-    if (denied) return { ok: false, error: denied }
-    return { ok: true, ...workbenchCapabilities() }
+  registerWorkbenchIpc({
+    get workbenchView() { return workbenchView },
+    get activeWorkbenchId() { return activeWorkbenchId },
+    get workbenchManager() { return workbenchManager },
+    get storage() { return storage },
+    get workbenchLaidOutOnce() { return workbenchLaidOutOnce },
+    get pluginLogger() { return pluginLogger },
+    workbenchGuard, workbenchCapabilities, workbenchSettingsValues, saveWorkbenchSettings, consoleVisible, workbenchStorageId, workbenchSize, applyWorkbenchSize, enterCustomMode, workbenchLogId, readShortcuts, writeShortcuts
   })
-  // 工作台参数（workbench.json 的 settings.fields）：页面读自己那一份，宿主在管理页渲染表单。
-  ipcMain.handle('workbench:settings:get', event => {
-    const denied = workbenchGuard(event, null)
-    return denied ? { ok: false, error: denied } : { ok: true, values: workbenchSettingsValues(activeWorkbenchId), schema: workbenchManager?.get(activeWorkbenchId)?.manifest.settings ?? null }
-  })
-  ipcMain.handle('workbench:settings:set', (event, patch: Record<string, unknown>) => {
-    const denied = workbenchGuard(event, null)
-    return denied ? { ok: false, error: denied } : { ok: true, values: saveWorkbenchSettings(activeWorkbenchId, patch ?? {}) }
-  })
-  // 自己的身份：页面用它定位自己的 resources/（跑随包脚本时要绝对路径）。
-  ipcMain.handle('workbench:self', event => {
-    const denied = workbenchGuard(event, null)
-    if (denied) return { ok: false, error: denied }
-    const descriptor = workbenchManager?.get(activeWorkbenchId)
-    return {
-      ok: true,
-      id: activeWorkbenchId,
-      name: descriptor?.manifest.name ?? activeWorkbenchId,
-      version: descriptor?.manifest.version ?? '0.0.0',
-      rootDir: descriptor?.rootDir ?? '',
-      builtin: descriptor?.builtin ?? activeWorkbenchId === BUILTIN_WORKBENCH_ID,
-    }
-  })
-  ipcMain.handle('workbench:system:status', event => {
-    const denied = workbenchGuard(event, 'system')
-    if (denied) return { ok: false, error: denied }
-    return { ok: true, time: Date.now(), cpuPercent: cpuPercent(), memoryPercent: Math.round((1 - os.freemem() / os.totalmem()) * 100), memoryUsed: os.totalmem() - os.freemem(), memoryTotal: os.totalmem(), uptime: os.uptime(), platform: process.platform }
-  })
-  ipcMain.handle('workbench:system:network', async event => {
-    const denied = workbenchGuard(event, 'system')
-    if (denied) return { ok: false, error: denied, downloadMbps: 0, uploadMbps: 0, latencyMs: null }
-    // 工作台一直挂着但可能在屏外：屏外就别每 2 秒起一次 PowerShell。
-    if (workbenchView?.webContents === event.sender && !consoleVisible()) return { ok: false, downloadMbps: 0, uploadMbps: 0, latencyMs: null }
-    const network = await networkStatus()
-    return { ok: true, downloadMbps: network.downloadMbps, uploadMbps: network.uploadMbps, latencyMs: network.latencyMs }
-  })
-  ipcMain.handle('workbench:open', async (event, target: string) => {
-    const denied = workbenchGuard(event, 'open')
-    return denied ? { ok: false, error: denied } : await workbenchOpen(target)
-  })
-  ipcMain.handle('workbench:http', async (event, url: string, options: Record<string, unknown>) => {
-    const denied = workbenchGuard(event, 'http')
-    return denied ? { ok: false, error: denied } : await workbenchHttp(url, options ?? {})
-  })
-  ipcMain.handle('workbench:run', async (event, command: string, args: string[], options: Record<string, unknown>) => {
-    const denied = workbenchGuard(event, 'run')
-    return denied ? { ok: false, error: denied, code: null, stdout: '', stderr: '' } : await workbenchRun(command, args, options ?? {})
-  })
-  ipcMain.handle('workbench:storage:get', (event, key: string) => {
-    const denied = workbenchGuard(event, 'storage')
-    return denied ? { ok: false, error: denied } : { ok: true, value: storage?.get(workbenchStorageId(), key) }
-  })
-  ipcMain.handle('workbench:storage:set', (event, key: string, value: unknown) => {
-    const denied = workbenchGuard(event, 'storage')
-    if (denied) return { ok: false, error: denied }
-    storage?.set(workbenchStorageId(), key, value)
-    return { ok: true }
-  })
-  ipcMain.handle('workbench:storage:delete', (event, key: string) => {
-    const denied = workbenchGuard(event, 'storage')
-    if (denied) return { ok: false, error: denied }
-    storage?.delete(workbenchStorageId(), key)
-    return { ok: true }
-  })
-  ipcMain.handle('workbench:storage:all', (event) => {
-    const denied = workbenchGuard(event, 'storage')
-    return denied ? { ok: false, error: denied } : { ok: true, values: storage?.all(workbenchStorageId()) ?? {} }
-  })
-  /**
-   * 工作台请求改尺寸。
-   *
-   * 两道守卫，都是被同一个真实 bug 逼出来的（第一次打开工作台"先慢慢变宽、再突然变高"）：
-   *  1. **还没被排布过就不接受**：回环的根源是页面**在宿主把它排布好之前**量到了垃圾尺寸
-   *     （那时视图还没有尺寸），这个值一旦被记下就会把第一次打开的动画带偏，甚至污染下一次。
-   *     排布过一次之后，页面量到的就是真实尺寸，它再显式请求就有意义了。
-   *     ⚠️ 判据用"排布过"而不是"当前可见"：工作台可能刚好被命中检测收回去，
-   *     但那不代表它量不到正确尺寸（它保持上次的 bounds）。
-   *  2. **小于 4px 的变化丢掉**：那是"自适应回环"的特征 —— 页面量到自己 = 当前盒子，
-   *     于是请求 +2px，宿主照做，页面又量到 +2…… 实测能刷出 163 次布局、尺寸一路爬到上限。
-   *     有意的调整（例如收掉一个面板）远大于这个量级，不会被误伤。
-   */
-  ipcMain.handle('workbench:resize', async (event, size: { width?: unknown; height?: unknown }) => {
-    const denied = workbenchGuard(event, 'resize')
-    if (denied) return { ok: false, error: denied }
-    const current = workbenchSize()
-    if (!workbenchLaidOutOnce) return { ok: false, error: 'not-laid-out', ...current }
-    const requestedWidth = Number(size?.width)
-    const requestedHeight = Number(size?.height)
-    const isFeedback = Number.isFinite(requestedWidth) && Number.isFinite(requestedHeight)
-      && Math.abs(requestedWidth - current.width) < WORKBENCH_RESIZE_EPSILON
-      && Math.abs(requestedHeight - current.height) < WORKBENCH_RESIZE_EPSILON
-    if (isFeedback) return { ok: true, ...current, clamped: false, ignored: 'below-threshold' }
-    const applied = applyWorkbenchSize(size)
-    // 正在显示就立刻重新布局；否则只记下来，下次右键打开时生效。
-    if (consoleVisible()) await enterCustomMode()
-    return { ok: true, ...applied }
-  })
-  ipcMain.on('workbench:log', (event, level: string, message: unknown) => {
-    if (workbenchGuard(event, null)) return
-    pluginLogger?.append(workbenchLogId(), level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info', message)
-  })
-
   // ---------------------------------------------------------------- 工作台管理（控制台「工作台」页用）
   ipcMain.handle('host:workbenches:list', () => ({ ok: true, trustNotice: WORKBENCH_TRUST_NOTICE, workbenches: workbenchListPayload(), issues: workbenchManager?.issues() ?? [] }))
   ipcMain.handle('host:workbenches:activate', (_event, id: string) => activateWorkbench(id))
@@ -3130,46 +2536,6 @@ function wireIpc(): void {
     } catch (error) { return { ok: false, error: String((error as Error)?.message ?? error) } }
   })
 
-  ipcMain.handle('workbench:shortcuts:get', event => {
-    const denied = workbenchGuard(event, 'shortcuts')
-    return denied ? { ok: false, error: denied } : { ok: true, shortcuts: readShortcuts() }
-  })
-  ipcMain.handle('workbench:shortcuts:add', (event, name: string, target: string) => {
-    const denied = workbenchGuard(event, 'shortcuts')
-    if (denied) return { ok: false, error: denied }
-    const cleanName = String(name ?? '').trim()
-    const cleanTarget = String(target ?? '').trim()
-    if (!cleanName || !cleanTarget) return { ok: false, error: '名称和路径都要填' }
-    const items = readShortcuts()
-    const item = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: cleanName, path: cleanTarget }
-    items.push(item)
-    writeShortcuts(items)
-    return { ok: true, shortcut: item }
-  })
-  ipcMain.handle('workbench:shortcuts:update', (event, id: string, patch: { name?: string; path?: string }) => {
-    const denied = workbenchGuard(event, 'shortcuts')
-    if (denied) return { ok: false, error: denied }
-    const items = readShortcuts()
-    const item = items.find(value => value.id === id)
-    if (!item) return { ok: false, error: '这条快捷启动已经不存在了' }
-    Object.assign(item, patch)
-    writeShortcuts(items)
-    return { ok: true }
-  })
-  ipcMain.handle('workbench:shortcuts:remove', (event, id: string) => {
-    const denied = workbenchGuard(event, 'shortcuts')
-    if (denied) return { ok: false, error: denied }
-    const items = readShortcuts()
-    const next = items.filter(value => value.id !== id)
-    writeShortcuts(next)
-    return { ok: next.length !== items.length }
-  })
-  ipcMain.handle('workbench:pick-file', async () => { const result = await dialog.showOpenDialog({ properties: ['openFile'] }); return result.canceled ? null : result.filePaths[0] })
-  ipcMain.handle('workbench:pick-directory', async () => {
-    const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
-    return result.canceled ? null : result.filePaths[0]
-  })
-  // ---------------------------------------------------------------- 插件安装（控制台「插件」页）
   ipcMain.handle('plugins:pick-directory', async () => { const result = await dialog.showOpenDialog({ properties: ['openDirectory'] }); return result.canceled ? null : result.filePaths[0] })
   ipcMain.handle('plugins:install', async (_event, directory: string) => {
     try {
