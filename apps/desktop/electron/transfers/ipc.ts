@@ -14,7 +14,7 @@ export interface TransferIpcContext {
   transferDragTimer: NodeJS.Timeout | null
   transferDragging: boolean
   readonly transferPanelOpen: boolean
-  transitionSerial: number
+  interruptTransition(): void
   readonly transferService: LocalSendService | null
   transferPanelSize: { width: number; height: number }
   readonly arbiter: IntentArbiter
@@ -61,7 +61,7 @@ export function registerTransferIpc(ctx: TransferIpcContext): void {
       if (!ctx.transferPanelOpen && !alreadyDragging) {
         ctx.cancelCollapse()
         ctx.arbiter.interrupt()
-        ++ctx.transitionSerial
+        ctx.interruptTransition()
         const size = { width: 420, height: 110 }
         const stage = ctx.stageOrigin(size.width, size.height)
         ctx.setHitRegion(ctx.stageHitRegion(stage, 28), false)

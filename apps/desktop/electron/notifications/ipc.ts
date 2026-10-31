@@ -17,7 +17,10 @@ export interface NotificationIpcContext {
   saveNotificationSettings(patch: Record<string, unknown>): Record<string, unknown>
   showClearConfirm(parent: BrowserWindow | null, available: boolean): Promise<ClearAction>
   createNotificationHistoryWindow(): BrowserWindow
-  testLevel(value: unknown): 'info' | 'warn' | 'critical'
+}
+
+function testLevel(value: unknown): 'info' | 'warn' | 'critical' {
+  return value === 'warn' || value === 'critical' ? value : 'info'
 }
 
 export function registerNotificationIpc(ctx: NotificationIpcContext): void {
@@ -81,7 +84,7 @@ export function registerNotificationIpc(ctx: NotificationIpcContext): void {
     const payload = JSON.stringify({
       title: input?.title || '端口测试',
       content: input?.body || '这条通知通过真实 HTTP 接口发送，验证端口、令牌与管道的完整链路。',
-      level: ctx.testLevel(input?.level),
+      level: testLevel(input?.level),
       app: { id: 'test.tool', name: '测试工具' },
     })
     return await new Promise((resolve) => {
@@ -142,7 +145,7 @@ export function registerNotificationIpc(ctx: NotificationIpcContext): void {
       const result = await ctx.notificationModule.testIngest({
         title: input?.title,
         body: input?.body,
-        level: ctx.testLevel(input?.level),
+        level: testLevel(input?.level),
       })
       return { ok: true, eventId: result.eventId }
     } catch (error) {
