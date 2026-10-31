@@ -1,10 +1,15 @@
+import { SettingsController, type SettingsLayoutChange } from './settings/controller'
+import { registerSettingsIpc } from './settings/ipc'
+import { SettingsStore } from './settings/store'
+import { applyLaunchAtLogin } from './system/startup'
+import { createTray } from './system/tray'
 import { registerTransferIpc } from './transfers/ipc'
 import { exportArtifactPackage } from './plugins/package-export'
 import { registerWorkbenchIpc } from './workbench/ipc'
 import { clampNumber } from './shared/numbers'
 import { registerNotificationIpc } from './notifications/ipc'
 import { createUpdateChecker } from './updates/checker'
-import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } from 'electron'
+import { app, BrowserWindow, WebContentsView, dialog, ipcMain, nativeImage, screen, shell, Tray } from 'electron'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -132,26 +137,8 @@ function isPluginToolView(value: unknown): value is PluginToolView {
  */
 let pendingMiniReveal: { ids: Set<string>; target: { layout: AnimatedLayout; placements: PluginPlacement[] }; timer: NodeJS.Timeout | null } | null = null
 
-interface IslandSettings {
-  idleMode: 'float' | 'collapsed'
-  islandTop: number
-  miniScale: number
-  pluginOrder: string[]
-  disabledPlugins: string[]
-  /** 插件 id → 用户选择的上岛方式；没存过就按清单的 resident 默认。 */
-  pluginModes: Record<string, 'resident' | 'alert'>
-  /** 旧版本升级迁移：已有插件先默认成常驻，避免升级后突然从岛上消失。 */
-  pluginModesMigrated: boolean
-  /** 登录 Windows 后自动启动（写 HKCU 的 Run 登录项）。 */
-  launchAtLogin: boolean
-  /** 启动时检查 GitHub Releases 更新。 */
-  checkUpdatesOnLaunch: boolean
-  /** 当前启用的工作台 id（`builtin` = 内置）。**一次只有一个**。 */
-  activeWorkbench: string
-  /** 工作台 id → 用户已确认的能力。声明新增能力后必须重新确认才允许启用。 */
-  workbenchGrants: Record<string, string[]>
-}
-let islandSettings: IslandSettings = { idleMode: 'float', islandTop: 8, miniScale: 1, pluginOrder: [], disabledPlugins: [], pluginModes: {}, pluginModesMigrated: false, launchAtLogin: false, checkUpdatesOnLaunch: true, activeWorkbench: BUILTIN_WORKBENCH_ID, workbenchGrants: {} }
+const settingsStore = new SettingsStore(path.join(app.getPath('userData'), 'settings.json'))
+const islandSettings = settingsStore.value
 
 const islandState = new IslandState()
 const events = new EventBus()
@@ -599,61 +586,38 @@ function updatePluginAnimationFrame(frame: { width: number; height: number; top:
     if (settled) applyPendingMiniReveal('frame')
   }
 }
-function settingsFile(): string { return path.join(app.getPath('userData'), 'settings.json') }
-function loadIslandSettings(): void {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(settingsFile(), 'utf8')) as Partial<IslandSettings>
-    islandSettings = {
-      idleMode: parsed.idleMode === 'collapsed' ? 'collapsed' : 'float',
-      islandTop: Number.isFinite(Number(parsed.islandTop)) ? Math.max(0, Math.min(200, Math.round(Number(parsed.islandTop)))) : 8,
-      miniScale: Number.isFinite(Number(parsed.miniScale)) ? Math.max(0.5, Math.min(1.5, Math.round(Number(parsed.miniScale) * 20) / 20)) : 1,
-      pluginOrder: Array.isArray(parsed.pluginOrder) ? parsed.pluginOrder.filter(id => typeof id === 'string') : [],
-      disabledPlugins: Array.isArray(parsed.disabledPlugins) ? parsed.disabledPlugins.filter(id => typeof id === 'string') : [],
-      pluginModes: parsed.pluginModes && typeof parsed.pluginModes === 'object'
-        ? Object.fromEntries(Object.entries(parsed.pluginModes as Record<string, unknown>)
-          .filter(([, value]) => value === 'resident' || value === 'alert')) as Record<string, 'resident' | 'alert'>
-        : {},
-      pluginModesMigrated: parsed.pluginModesMigrated === true,
-      launchAtLogin: parsed.launchAtLogin === true,
-      checkUpdatesOnLaunch: parsed.checkUpdatesOnLaunch !== false,
-      activeWorkbench: typeof parsed.activeWorkbench === 'string' && parsed.activeWorkbench ? parsed.activeWorkbench : BUILTIN_WORKBENCH_ID,
-      workbenchGrants: parsed.workbenchGrants && typeof parsed.workbenchGrants === 'object'
-        ? Object.fromEntries(Object.entries(parsed.workbenchGrants as Record<string, unknown>)
-          .filter(([, value]) => Array.isArray(value))
-          .map(([key, value]) => [key, (value as unknown[]).filter(item => typeof item === 'string') as string[]]))
-        : {},
-    }
-  } catch { /* first run uses defaults */ }
-}
-function saveIslandSettings(): void {
-  fs.mkdirSync(path.dirname(settingsFile()), { recursive: true })
-  fs.writeFileSync(settingsFile(), JSON.stringify(islandSettings, null, 2), 'utf8')
-}
-function publicIslandSettings() { return { ...islandSettings, disabledPlugins: [...islandSettings.disabledPlugins], pluginModes: { ...islandSettings.pluginModes } } }
+function saveIslandSettings(): void { settingsStore.save() }
+function publicIslandSettings() { return settingsStore.snapshot() }
 
 // ---------------------------------------------------------------- 更新检查
 // 只读 GitHub Releases 的 latest，不自动下载安装；有新版时由「关于」页给出跳转。
 const updateChecker = createUpdateChecker((level, message) => pluginLogger?.append('_host', level, message))
 const checkForUpdates = updateChecker.checkForUpdates
 
-/**
- * 开机启动写的是 Windows 登录项（HKCU\...\Run），不写任何自启动服务。
- * - 安装版：注册当前 exe；
- * - 便携版：注册便携 exe，而不是运行时解包到 Temp 的副本；
- * - 源码运行：注册 electron.exe + 应用目录，方便本机验证（发布版不会走到这里）。
- */
-function applyLaunchAtLogin(enabled: boolean): { ok: boolean; enabled: boolean; error?: string } {
-  const options: { path?: string; args?: string[] } = {}
-  try {
-    const portable = process.env.PORTABLE_EXECUTABLE_FILE
-    if (portable) { options.path = portable; options.args = [] }
-    else if (!app.isPackaged) { options.path = process.execPath; options.args = [app.getAppPath()] }
-    app.setLoginItemSettings({ ...options, openAtLogin: enabled })
-    return { ok: true, enabled: app.getLoginItemSettings(options).openAtLogin }
-  } catch (error) {
-    return { ok: false, enabled: app.getLoginItemSettings(options).openAtLogin, error: String((error as Error)?.message ?? error) }
-  }
+const settingsController = new SettingsController(settingsStore, {
+  pluginIds: () => plugins().map(plugin => plugin.manifest.id),
+  launchAtLogin: applyLaunchAtLogin,
+  changed: () => sendSettingsChanged(),
+  applyLayout: applySettingsLayout,
+})
+
+async function applySettingsLayout(change: SettingsLayoutChange): Promise<void> {
+  const state = islandState.value
+  if (change === 'idle-mode') {
+    if (state.mode === 'idle' || state.mode === 'compact') await showRest()
+  } else if (change === 'top') {
+    if (state.mode === 'idle') await showIdle(idleHover)
+    else if (state.mode === 'compact') await showRest(hitInside)
+    else if ((state.mode === 'expanded' || state.mode === 'detail') && state.activePluginId) {
+      const plugin = runtimeView(state.activePluginId)
+      if (plugin) await showActive(plugin, state.mode)
+    } else if (state.mode === 'custom') await enterCustomMode()
+  } else if (change === 'scale') {
+    if (state.mode === 'compact') await showRest(hitInside)
+    else if (state.mode === 'idle') await showIdle(idleHover)
+  } else if (state.mode === 'compact' && !alertActive) await showRest(hitInside)
 }
+
 function sendSettingsChanged(): void {
   sendHost('settings:changed', publicIslandSettings())
   if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('settings:changed', publicIslandSettings())
@@ -2220,23 +2184,6 @@ function createNotificationHistoryWindow(): BrowserWindow {
   return win
 }
 
-function createTray(): void {
-  // 免得 Windows 把空图标整个隐藏掉、用户以为程序没在跑。
-  let icon = nativeImage.createFromPath(assetFile('tray.png'))
-  if (icon.isEmpty()) {
-    pluginLogger?.append('_host', 'warn', `托盘图标读取失败（空图）：${assetFile('tray.png')}`)
-    icon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1+jfqAAAAKElEQVR42mNkYPj/n4GBgYGBgQH+////PwMDAwMDAwMAAAAwAAH6C9D0AAAAASUVORK5CYII=')
-  }
-  tray = new Tray(icon)
-  tray.setToolTip('Activity Island')
-  pluginLogger?.append('_host', 'info', `已启动 v${app.getVersion()}${app.isPackaged ? '（安装版）' : '（源码运行）'} · assets=${path.dirname(assetFile('tray.png'))}`)
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '打开控制台管理', click: () => { createSettingsWindow().show() } },
-    { type: 'separator' },
-    { label: '退出', click: () => { quitRequested = true; closeAppWindows(); app.quit() } },
-  ]))
-}
-
 function wireIpc(): void {
   ipcMain.handle('host:plugins:list', () => pluginListPayload())
   ipcMain.handle('host:plugins:enabled:set', (_event, pluginId: string, enabled: boolean) => setPluginEnabled(pluginId, enabled))
@@ -2378,65 +2325,14 @@ function wireIpc(): void {
     updatePluginAnimationFrame({ width: Number(frame.width), height: Number(frame.height), top: Number(frame.top), radius: Number(frame.radius) })
   })
 
-  // appVersion 一起带上：否则「关于」页只能写死版本号，发一次新版就会过期。
-  ipcMain.handle('settings:get', () => ({ ...publicIslandSettings(), appVersion: app.getVersion(), plugins: plugins().map(item => item.manifest) }))
-  ipcMain.handle('app:update-status', () => ({
-    ...(updateChecker.status ?? { currentVersion: app.getVersion(), checkedAt: 0 }),
-    checkUpdatesOnLaunch: islandSettings.checkUpdatesOnLaunch,
-  }))
-  ipcMain.handle('app:check-updates', () => checkForUpdates(true))
-  ipcMain.handle('settings:set-check-updates', (_event, enabled: boolean) => {
-    islandSettings.checkUpdatesOnLaunch = enabled === true
-    saveIslandSettings()
-    sendSettingsChanged()
-    return { ok: true, enabled: islandSettings.checkUpdatesOnLaunch }
-  })
-  ipcMain.handle('settings:set-launch-at-login', (_event, enabled: boolean) => {
-    const result = applyLaunchAtLogin(enabled === true)
-    if (!result.ok) return result
-    islandSettings.launchAtLogin = result.enabled
-    saveIslandSettings()
-    sendSettingsChanged()
-    return result
-  })
-  ipcMain.handle('settings:set-idle-mode', async (_event, mode: 'float' | 'collapsed') => {
-    if (mode !== 'float' && mode !== 'collapsed') throw new Error('unknown-idle-mode')
-    islandSettings.idleMode = mode
-    saveIslandSettings()
-    // 正在静止时立刻套用新表现：选"收起"就应该马上缩回触发条，而不是等下一次事件。
-    if (islandState.value.mode === 'idle' || islandState.value.mode === 'compact') await showRest()
-    sendSettingsChanged()
-    return publicIslandSettings()
-  })
-  ipcMain.handle('settings:set-island-top', async (_event, value: number) => {
-    const top = Number(value)
-    islandSettings.islandTop = Number.isFinite(top) ? Math.max(0, Math.min(200, Math.round(top))) : 8
-    saveIslandSettings()
-    const state = islandState.value
-    if (state.mode === 'idle') await showIdle(idleHover)
-    else if (state.mode === 'compact') await showRest(hitInside)
-    else if ((state.mode === 'expanded' || state.mode === 'detail') && state.activePluginId) {
-      const plugin = runtimeView(state.activePluginId)
-      if (plugin) await showActive(plugin, state.mode)
-    } else if (state.mode === 'custom') await enterCustomMode()
-    sendSettingsChanged()
-    return publicIslandSettings()
-  })
-  ipcMain.handle('settings:set-mini-scale', async (_event, value: number) => {
-    const scale = Number(value)
-    islandSettings.miniScale = Number.isFinite(scale) ? Math.max(0.5, Math.min(1.5, Math.round(scale * 20) / 20)) : 1
-    saveIslandSettings()
-    if (islandState.value.mode === 'compact') await showRest(hitInside)
-    else if (islandState.value.mode === 'idle') await showIdle(idleHover)
-    sendSettingsChanged()
-    return publicIslandSettings()
-  })
-  ipcMain.handle('settings:set-plugin-order', async (_event, ids: string[]) => {
-    islandSettings.pluginOrder = pruneOrder(Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : [], plugins().map(item => item.manifest.id))
-    saveIslandSettings()
-    if (islandState.value.mode === 'compact' && !alertActive) await showRest(hitInside)
-    sendSettingsChanged()
-    return publicIslandSettings()
+  registerSettingsIpc({
+    controller: settingsController,
+    snapshot: () => ({ ...publicIslandSettings(), appVersion: app.getVersion(), plugins: plugins().map(item => item.manifest) }),
+    updateStatus: () => ({
+      ...(updateChecker.status ?? { currentVersion: app.getVersion(), checkedAt: 0 }),
+      checkUpdatesOnLaunch: islandSettings.checkUpdatesOnLaunch,
+    }),
+    checkUpdates: () => checkForUpdates(true),
   })
   ipcMain.handle('console:open', (_event, kind: 'settings', tab?: string) => {
     if (kind === 'settings') createSettingsWindow(tab).show()
@@ -2628,7 +2524,7 @@ app.whenReady().then(async () => {
     (id, name, payload) => emitPluginEvent(id, name, payload, { toSelf: true }),
     id => pluginSettingsValues(id),
   )
-  loadIslandSettings()
+  settingsStore.load()
   // 登录项可能因为换安装路径/重装而失效：设置里开着就重新对齐一次。
   if (islandSettings.launchAtLogin) applyLaunchAtLogin(true)
   // 用户排序里丢掉已卸载的插件，避免顺序表无限增长。
@@ -2674,7 +2570,13 @@ app.whenReady().then(async () => {
   })
   viewManager.setHostIdentity({ contractVersion: CONTRACT_VERSION, hostVersion: app.getVersion(), hostName: 'Activity Island', capabilities: HOST_CAPABILITIES })
   viewManager.setDeviceScaleFactor(screen.getPrimaryDisplay().scaleFactor)
-  wireIpc(); createTray()
+  wireIpc()
+  tray = createTray({
+    iconPath: assetFile('tray.png'),
+    log: (level, message) => pluginLogger?.append('_host', level, message),
+    openSettings: () => { createSettingsWindow().show() },
+    quit: () => { quitRequested = true; closeAppWindows(); app.quit() },
+  })
   installTransferIpc()
   transferService = new LocalSendService({
     baseDir: path.join(app.getPath('userData'), 'transfers'),

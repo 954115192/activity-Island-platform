@@ -18,5 +18,10 @@
   },
   "include": [
     "electron/**/*.ts"
+  ],
+  "exclude": [
+    "electron/settings/ipc-handlers.ts",
+    "electron/shared/app-context.ts",
+    "electron/shared/ipc-registry.ts"
   ]
 }
