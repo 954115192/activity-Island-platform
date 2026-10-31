@@ -1146,18 +1146,18 @@ function setHitRegion(region: { x: number; y: number; width: number; height: num
   if (refresh) updateHitTest()
 }
 function auxiliaryWindowAt(point: Electron.Point): boolean {
-  return [settingsWindow, notificationHistoryWindow].some(win => {
-    if (!win || win.isDestroyed() || !win.isVisible() || win.isMinimized()) return false
-    const bounds = win.getBounds()
-    return point.x >= bounds.x && point.x < bounds.x + bounds.width && point.y >= bounds.y && point.y < bounds.y + bounds.height
-  })
+  // Settings is an ordinary window below the island; only the topmost
+  // notification history can take precedence where it overlaps the island.
+  const win = notificationHistoryWindow
+  if (!win || win.isDestroyed() || !win.isVisible() || win.isMinimized()) return false
+  const bounds = win.getBounds()
+  return point.x >= bounds.x && point.x < bounds.x + bounds.width && point.y >= bounds.y && point.y < bounds.y + bounds.height
 }
 function syncHostLayerForAuxiliaryWindows(): void {
   const win = mainWindow
   if (!win || win.isDestroyed()) return
-  for (const auxiliary of [settingsWindow, notificationHistoryWindow]) {
-    if (auxiliary && !auxiliary.isDestroyed() && auxiliary.isAlwaysOnTop() !== !fullscreenHidden) auxiliary.setAlwaysOnTop(!fullscreenHidden, 'screen-saver')
-  }
+  const history = notificationHistoryWindow
+  if (history && !history.isDestroyed() && history.isAlwaysOnTop() !== !fullscreenHidden) history.setAlwaysOnTop(!fullscreenHidden, 'screen-saver')
   if (!fullscreenHidden && !win.isAlwaysOnTop()) win.setAlwaysOnTop(true, 'screen-saver')
   if (!fullscreenHidden) updateHitTest()
 }

@@ -1,10 +1,17 @@
-// 检查辅助窗口与小岛的置顶及重叠命中；用模拟坐标避免移动用户鼠标。
+// 检查辅助窗口与小岛的置顶及重叠命中；模拟坐标和全屏事件，不改变用户的鼠标或窗口。
 const electron = require('electron')
 const { app, BrowserWindow } = electron
 const fs = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
 const assert = require('node:assert/strict')
+const fullscreenModule = require('../../dist-electron/window/foreground-fullscreen.js')
+let changeFullscreen
+fullscreenModule.ForegroundFullscreenMonitor = class {
+  constructor(_window, onChange) { changeFullscreen = onChange }
+  start() {}
+  stop() {}
+}
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const until = async (fn, timeout = 10000) => {
   const deadline = Date.now() + timeout
@@ -32,7 +39,7 @@ const until = async (fn, timeout = 10000) => {
   settings.setPosition(0, 200)
   await wait(200)
   assert.equal(host.isAlwaysOnTop(), true)
-  assert.equal(settings.isAlwaysOnTop(), true)
+  assert.equal(settings.isAlwaysOnTop(), false)
   const rect = await hostJs('(() => { const r=document.querySelector(".island-shell").getBoundingClientRect(); return { x:r.x+r.width/2, y:r.y+r.height/2 } })()')
   const bounds = host.getBounds()
   pointer = { x: Math.round(bounds.x + rect.x), y: Math.round(bounds.y + rect.y) }
@@ -40,16 +47,44 @@ const until = async (fn, timeout = 10000) => {
   host.focus()
   await wait(100)
   assert.equal(host.isAlwaysOnTop(), true)
-  assert.equal(settings.isAlwaysOnTop(), true)
+  assert.equal(settings.isAlwaysOnTop(), false)
+  // Settings is below the island and must not steal its overlapping hit area.
   settings.setPosition(pointer.x - 200, pointer.y - 20)
-  await until(async () => !(await hostJs('window.dynamicIslandHost.getState()')).pointerInside)
+  await wait(200)
+  assert.equal((await hostJs('window.dynamicIslandHost.getState()')).pointerInside, true)
   assert.equal(host.isAlwaysOnTop(), true)
   settings.setPosition(0, 200)
   await until(async () => (await hostJs('window.dynamicIslandHost.getState()')).pointerInside)
+  // Another ordinary window can take focus while settings remains non-topmost.
+  const ordinary = new BrowserWindow({ x: 0, y: 200, width: 320, height: 240, show: false })
+  ordinary.show()
+  ordinary.focus()
+  await until(() => ordinary.isFocused())
+  assert.equal(settings.isAlwaysOnTop(), false)
+  assert.equal(host.isAlwaysOnTop(), true)
+  ordinary.close()
   await settings.webContents.executeJavaScript('window.islandSettings.openNotificationHistory()')
   await until(() => BrowserWindow.getAllWindows().some(w => w.webContents.getURL().includes('system-notifications/history.html')))
   const history = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('system-notifications/history.html'))
   assert.equal(history.isAlwaysOnTop(), true)
+  // The still-topmost history window keeps its existing overlap behavior.
+  history.setPosition(pointer.x - 200, pointer.y - 20)
+  await until(async () => !(await hostJs('window.dynamicIslandHost.getState()')).pointerInside)
+  history.setPosition(0, 200)
+  await until(async () => (await hostJs('window.dynamicIslandHost.getState()')).pointerInside)
+  assert.equal(settings.isAlwaysOnTop(), false)
+  assert.equal(typeof changeFullscreen, 'function')
+  changeFullscreen(true)
+  assert.equal(host.isVisible(), false)
+  assert.equal(history.isAlwaysOnTop(), false)
+  assert.equal(settings.isAlwaysOnTop(), false)
+  await wait(250)
+  changeFullscreen(false)
+  await until(() => host.isVisible() && history.isAlwaysOnTop())
+  assert.equal(host.isVisible(), true)
+  assert.equal(host.isAlwaysOnTop(), true)
+  assert.equal(history.isAlwaysOnTop(), true)
+  assert.equal(settings.isAlwaysOnTop(), false)
   settings.close()
   await until(() => settings.isDestroyed())
   assert.equal(host.isAlwaysOnTop(), true)
