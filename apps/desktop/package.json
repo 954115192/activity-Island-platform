@@ -37,7 +37,8 @@
     "test:notification-encoding": "node scripts/tests/notification-encoding.cjs",
     "build:listener": "dotnet publish tools/notify-listener/notify-listener.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o build/notify-listener",
     "build:all": "npm run build:listener && npm run build",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.electron.json"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.electron.json",
+    "test:shutdown": "npm run build:electron && electron scripts/tests/plugin-view-dispose-e2e.cjs && node scripts/tests/tray-quit-e2e.cjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

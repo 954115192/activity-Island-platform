@@ -108,4 +108,3 @@ export function compactLayoutWithQuickActions(visible: PluginDescriptor[], scale
     quickActions: true,
   }
 }
-

@@ -54,7 +54,8 @@ export interface HostIdentity {
 /** Native plugin pages with one animated clipping parent. */
 export class PluginViewManager {
   private readonly views = new Map<string, WebContentsView>()
-  private readonly pendingLoads = new Map<string, Promise<WebContentsView>>()
+  private readonly pendingLoads = new Map<string, Promise<WebContentsView | null>>()
+  private disposed = false
   private readonly modes = new Map<string, PluginMode>()
   private readonly zoomFactors = new Map<string, number>()
   private readonly bounds = new Map<string, ViewBounds>()
@@ -85,11 +86,13 @@ export class PluginViewManager {
     this.window.contentView.addChildView(this.viewport)
   }
 
-  async ensure(plugin: PluginDescriptor): Promise<WebContentsView> {
+  async ensure(plugin: PluginDescriptor): Promise<WebContentsView | null> {
+    if (this.disposed || this.window.isDestroyed()) return null
     const id = plugin.manifest.id
     const pending = this.pendingLoads.get(id)
     if (pending) {
       const view = await pending
+      if (this.disposed || this.window.isDestroyed()) return null
       return this.views.get(id) === view ? view : this.ensure(plugin)
     }
     const existing = this.views.get(id)
@@ -98,13 +101,14 @@ export class PluginViewManager {
     this.pendingLoads.set(id, loading)
     try {
       const view = await loading
+      if (this.disposed || this.window.isDestroyed()) return null
       return this.views.get(id) === view ? view : this.ensure(plugin)
     } finally {
       if (this.pendingLoads.get(id) === loading) this.pendingLoads.delete(id)
     }
   }
 
-  private async loadPluginView(plugin: PluginDescriptor): Promise<WebContentsView> {
+  private async loadPluginView(plugin: PluginDescriptor): Promise<WebContentsView | null> {
     const id = plugin.manifest.id
     const view = new WebContentsView({
       webPreferences: {
@@ -147,7 +151,8 @@ export class PluginViewManager {
     this.views.set(id, view)
     this.shown.set(id, false)
     await view.webContents.loadFile(plugin.entryPath, { query: { pluginId: id, mode: 'small' } })
-      .catch(error => { this.callbacks.onEvent(id, 'runtime:error', { reason: 'load-failed', message: String(error) }) })
+      .catch(error => { if (!this.disposed) this.callbacks.onEvent(id, 'runtime:error', { reason: 'load-failed', message: String(error) }) })
+    if (this.disposed || this.window.isDestroyed() || view.webContents.isDestroyed() || this.views.get(id) !== view) return null
     // 页面加载完就把契约首包推给它：插件脚本可能早于这次推送运行，所以 preload
     // 还提供 plugin:hello 反向握手（见 helloFor）。
     this.sendHello(id)
@@ -172,7 +177,7 @@ export class PluginViewManager {
 
   sendHello(pluginId: string): void {
     const view = this.views.get(pluginId)
-    if (view) view.webContents.send('host:hello', this.helloPayload(pluginId))
+    if (view && !view.webContents.isDestroyed()) view.webContents.send('host:hello', this.helloPayload(pluginId))
   }
 
   /** 意图回执（alert/focus 的裁决结果）或其它定向通知。 */
@@ -182,7 +187,8 @@ export class PluginViewManager {
 
   /** 定向给某个插件发消息（设置同步等）。 */
   sendToPlugin(pluginId: string, channel: string, payload: unknown): void {
-    this.views.get(pluginId)?.webContents.send(channel, payload)
+    const view = this.views.get(pluginId)
+    if (view && !view.webContents.isDestroyed()) view.webContents.send(channel, payload)
   }
 
   /** 插件清单里的设置项声明（控制台表单与插件的 island.settings.schema() 共用）。 */
@@ -247,6 +253,7 @@ export class PluginViewManager {
       this.themeKey = themeKey
     }
     for (const [id, view] of this.views) {
+      if (view.webContents.isDestroyed()) continue
       if (themeChanged) view.webContents.send('host:theme', { type: 'host:theme', theme })
       const visibility = this.visibilityFor(id, state)
       const visibilityKey = `${visibility.visible}|${visibility.reason}|${visibility.rendering}`
@@ -513,6 +520,7 @@ export class PluginViewManager {
    */
   broadcastEvent(name: string, payload: unknown, source?: string, options: { toSelf?: boolean } = {}): void {
     for (const [id, view] of this.views) {
+      if (view.webContents.isDestroyed()) continue
       if (id === source && !options.toSelf) continue
       view.webContents.send('host:event', { name, payload })
     }
@@ -547,8 +555,8 @@ export class PluginViewManager {
   destroy(pluginId: string): void {
     const view = this.views.get(pluginId)
     if (!view) return
-    this.viewport.removeChildView(view)
-    view.webContents.close()
+    if (!this.window.isDestroyed()) this.viewport.removeChildView(view)
+    if (!view.webContents.isDestroyed()) view.webContents.close()
     this.views.delete(pluginId)
     this.pendingLoads.delete(pluginId)
     this.modes.delete(pluginId)
@@ -560,6 +568,13 @@ export class PluginViewManager {
     this.pendingModeReady.delete(pluginId)
     const waiter = this.modeReadyWaiters.get(pluginId)
     if (waiter) { this.modeReadyWaiters.delete(pluginId); waiter.resolve(false) }
+  }
+
+  /** Terminal shutdown: pending loads resolve without recreating or messaging views. */
+  dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    this.destroyAll()
   }
 
   destroyAll(): void {

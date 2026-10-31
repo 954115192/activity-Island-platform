@@ -44,6 +44,7 @@ interface IslandOptions {
 
 /** Owns island interaction, transition timers and the rendered/native layout state. */
 export function createIslandController(options: IslandOptions) {
+  let disposed = false
 
   let collapseTimer: NodeJS.Timeout | null = null
 
@@ -122,6 +123,7 @@ export function createIslandController(options: IslandOptions) {
   let hitRegion = { x: 0, y: 0, width: SMALL_DEFAULT.width, height: SMALL_DEFAULT.height, radius: 23, interactive: true }
 
   function syncPluginViews(frame = animatedFrame): void {
+    if (disposed) return
     if (!options.host.views) return
     // idle（含收起触发条）：插件视图一个都不藏。setVisible(false) 会让 Chromium
     // 停掉该页的出帧，下次展开的第一帧要等合成器从休眠里恢复——弹簧都走完了内容
@@ -203,6 +205,7 @@ export function createIslandController(options: IslandOptions) {
   }
 
   async function applySettingsLayout(change: SettingsLayoutChange): Promise<void> {
+    if (disposed) return
     const state = islandState.value
     if (change === 'idle-mode') {
       if (state.mode === 'idle' || state.mode === 'compact') await showRest()
@@ -284,6 +287,7 @@ export function createIslandController(options: IslandOptions) {
   const workbenchSizing = createWorkbenchSize()
 
   async function enterCustomMode(): Promise<void> {
+    if (disposed) return
     if (!options.host.window || !options.host.views) return
     options.transfers.hide()
     clearAlertCarry()
@@ -335,6 +339,7 @@ export function createIslandController(options: IslandOptions) {
   }
 
   function updateHitTest(): void {
+    if (disposed) return
     if (!options.host.window || options.host.window.isDestroyed() || options.host.layer.hidden) return
     const point = screen.getCursorScreenPoint()
     // Prefer the utility window only where it actually overlaps the cursor.
@@ -452,6 +457,7 @@ export function createIslandController(options: IslandOptions) {
    * 启动、以及切换"空闲表现/顶部位置/缩放"这类会影响静止尺寸的设置时都走这里。
    */
   async function showRest(hovered = false): Promise<void> {
+    if (disposed) return
     if (options.transfers.open || options.transfers.dragging) return
     if (options.transfers.showProgress()) return
     if (options.settings.idleMode === 'collapsed') {
@@ -512,6 +518,7 @@ export function createIslandController(options: IslandOptions) {
    * 第一次把鼠标移到触发条上就会看到"岛出来了但里面是空的"。
    */
   async function warmPluginViews(): Promise<void> {
+    if (disposed) return
     const manager = options.host.views
     if (!manager) return
     const small = options.plugins.ordered()
@@ -520,7 +527,7 @@ export function createIslandController(options: IslandOptions) {
     const { placements, baseWidth, height } = compactLayout(small, scale)
     const layout: AnimatedLayout = { width: baseWidth, height, top, placements, clipPlugins: true }
     await Promise.all(small.map(plugin => manager.ensure(plugin)))
-    if (islandState.value.mode !== 'idle' || options.settings.idleMode !== 'collapsed') return
+    if (disposed || islandState.value.mode !== 'idle' || options.settings.idleMode !== 'collapsed') return
     for (const plugin of small) {
       const placement = placements.find(item => item.pluginId === plugin.manifest.id)
       if (!placement) continue
@@ -535,6 +542,7 @@ export function createIslandController(options: IslandOptions) {
   }
 
   async function showIdle(hovered = false): Promise<void> {
+    if (disposed) return
     if (options.transfers.open || options.transfers.dragging) return
     if (options.transfers.showProgress()) return
     if (!options.host.window || !options.host.views) return
@@ -580,6 +588,7 @@ export function createIslandController(options: IslandOptions) {
   }
 
   async function showCompact(hovered = false, solo?: PluginDescriptor, soloWidth?: number): Promise<void> {
+    if (disposed) return
     if (options.transfers.open || options.transfers.dragging) return
     if (!solo && options.transfers.showProgress()) return
     if (!options.host.window || !options.host.views) return
@@ -763,6 +772,7 @@ export function createIslandController(options: IslandOptions) {
   }
 
   async function showActive(plugin: PluginDescriptor, mode: Extract<IslandMode, 'expanded' | 'detail'>): Promise<void> {
+    if (disposed) return
     if (options.transfers.open || options.transfers.dragging) return
     if (!options.host.window || !options.host.views) return
     // 展开的是别的插件 → 提醒光圈不跟随，撤掉；展开的就是提醒归属插件 → 光圈继续跟随。
@@ -806,6 +816,7 @@ export function createIslandController(options: IslandOptions) {
   }
 
   function handlePluginCommand(pluginId: string, command: string, args: unknown[]): void {
+    if (disposed) return
     const plugin = options.plugins.get(pluginId)
     if (!plugin) return
     const state = islandState.value
@@ -894,6 +905,15 @@ export function createIslandController(options: IslandOptions) {
     }
   }
   return {
+    dispose() {
+      if (disposed) return
+      disposed = true
+      ++transitionSerial
+      cancelCollapse()
+      clearPendingMiniReveal()
+      cancelDeferredWorkbenchHide()
+      arbiter.dispose()
+    },
     get alertActive() { return alertActive },
     applySettingsLayout,
     get arbiter() { return arbiter },

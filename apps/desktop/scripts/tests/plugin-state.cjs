@@ -55,3 +55,22 @@ test('repeated installed-file events cannot cause an unbounded reload storm', as
   assert.equal(loads, 8)
   assert.equal(errors, 1)
 })
+
+test('disposed hot reload cannot reattach watchers after an in-flight view load finishes', async () => {
+  let finishLoad
+  const pending = new Promise(resolve => { finishLoad = resolve })
+  let watched = 0, refreshed = 0, changed = 0
+  const reloader = new PluginReloader({
+    manager: { discover: () => [{ manifest: { id: 'demo' } }], list: () => [] },
+    views: { destroy() {}, ensure: () => pending },
+    background: null, watcher: { watch() { watched++ } }, logger: null,
+    enabled: () => true, syncSettingsSchemas() {}, resetPlugin() {},
+    refreshIsland: async () => { refreshed++ }, changed() { changed++ },
+  })
+  const loading = reloader.reload('demo', 'installed')
+  reloader.dispose()
+  finishLoad(null)
+  await loading
+  reloader.watch()
+  assert.deepEqual([watched, refreshed, changed], [0, 0, 0])
+})

@@ -7,4 +7,3 @@ export function sendMediaKey(action: 'previous' | 'toggle' | 'next'): void {
   const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true, stdio: 'ignore' })
   child.unref()
 }
-

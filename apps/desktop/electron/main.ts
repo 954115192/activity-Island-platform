@@ -240,10 +240,11 @@ function closeAppWindows(): void {
     try { win.hide() } catch { /* window is already closing */ }
   }
   if (hitPoll) { clearInterval(hitPoll); hitPoll = null }
-  island.cancelCollapse()
+  island.dispose()
+  pluginsRuntime.reloader.dispose()
   pluginWatcher?.close()
   backgroundManager?.stopAll()
-  viewManager?.destroyAll()
+  viewManager?.dispose()
   events.clear()
   tray?.destroy()
   tray = null

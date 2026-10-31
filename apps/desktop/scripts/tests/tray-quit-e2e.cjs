@@ -51,6 +51,7 @@ if (process.env.ISLAND_TRAY_QUIT_HELPER === '1') {
     clearTimeout(timeout)
     process.stdout.write(output)
     const ok = code === 0 && output.includes('EXIT_CLICKED visibleHost=true')
+      && !/UnhandledPromiseRejection|Object has been destroyed/.test(output)
     console.log(`${ok ? 'PASS' : 'FAIL'} tray Exit terminates the visible host process (code ${code})`)
     if (!ok) process.exitCode = 1
   })

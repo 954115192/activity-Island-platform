@@ -20,11 +20,13 @@ interface ReloadOptions {
 
 /** Developer hot reload: guards storms, syncs sources and recreates runtime views. */
 export class PluginReloader {
+  private disposed = false
   private syncingUntil = 0
   private readonly reloadTimes = new Map<string, number[]>()
   constructor(private readonly options: ReloadOptions) {}
 
   watch(): void {
+    if (this.disposed) return
     const { manager, watcher } = this.options
     if (!manager || !watcher) return
     this.options.syncSettingsSchemas()
@@ -35,6 +37,7 @@ export class PluginReloader {
   }
 
   async reload(id: string, origin: 'source' | 'installed'): Promise<void> {
+    if (this.disposed) return
     const { manager, views, background, logger } = this.options
     if (!manager || !views) return
     if (origin === 'installed' && Date.now() < this.syncingUntil) return
@@ -55,11 +58,17 @@ export class PluginReloader {
     else {
       if (this.options.enabled(id)) background?.start(next)
       await views.ensure(next)
+      if (this.disposed) return
       logger?.append(id, 'info', `热重载完成（${origin === 'source' ? '开发目录' : '安装目录'}改动）`)
     }
     this.watch()
     await this.options.refreshIsland()
     this.options.changed(list.map(item => item.manifest))
+  }
+
+  dispose(): void {
+    this.disposed = true
+    this.reloadTimes.clear()
   }
 
   private allowReload(id: string): boolean {

@@ -69,3 +69,5 @@ tools/                    本地开发与发布工具
 - `npm run build`：生成渲染端资源及可独立分发的 Electron CommonJS 代码。
 
 Electron 业务模块通过 `electron/shared/platform.ts` 使用平台包。修改共享服务无需同步桌面副本。构建细节和本次检查的遗留问题见 [架构重构记录](docs/architecture-refactor-2026-11-01.md)。
+
+主进程各模块的职责、状态归属与调用关系见 [主进程代码导航](docs/main-process-structure.md)。退出生命周期可使用 `npm run test:shutdown --workspace dynamic-island-host` 单独验证。
