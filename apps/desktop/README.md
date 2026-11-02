@@ -1,4 +1,6 @@
-# Activity Island
+# activity-Island-platform
+
+产品展示名为 `activity-Island-platform`，桌面 npm 包名为 `@activity-island-platform/desktop`。为兼容已有安装，数据目录继续使用 `%APPDATA%\dynamic-island-host\`，Windows AppUserModelID 保持 `com.activity-island.host`。
 
 Windows 桌面灵动岛。一个 Electron 宿主进程负责屏幕顶部的"岛"本身，所有功能由**独立网页插件**提供 —— 插件内容被宿主逐帧裁剪，跟着岛的外壳一起生长、收缩。以下截图均来自真实运行画面（见 `docs/images/`）。
 
@@ -189,7 +191,7 @@ cd island-main
 npm install
 npm run dev            # 开发模式（renderer 热更新）
 
-npm run dist           # NSIS 安装包 → release\Activity Island-<版本>-setup.exe
+npm run dist           # NSIS 安装包 → release\activity-Island-platform-<版本>-setup.exe
 npm run dist:portable  # 免安装单文件 exe
 ```
 

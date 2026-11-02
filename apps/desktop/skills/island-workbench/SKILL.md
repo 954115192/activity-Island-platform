@@ -1,9 +1,9 @@
 ---
 name: island-workbench
-description: 为 Activity Island（Windows 桌面灵动岛，Electron 应用）生成工作台（控制台面板）。当用户想给灵动岛做工作台（系统监控、快捷启动、用量面板、任务聚合页等，右键小岛打开的全屏面板）时使用：生成 workbench.json + dist/ 网页，声明能力、遵守外轮廓与失败上报规范，并指导用户在控制台安装启用。
+description: 为 activity-Island-platform（Windows 桌面灵动岛，Electron 应用）生成工作台（控制台面板）。当用户想给灵动岛做工作台（系统监控、快捷启动、用量面板、任务聚合页等，右键小岛打开的全屏面板）时使用：生成 workbench.json + dist/ 网页，声明能力、遵守外轮廓与失败上报规范，并指导用户在控制台安装启用。
 ---
 
-# Activity Island 工作台生成
+# activity-Island-platform 工作台生成
 
 ## 任务与产物
 
@@ -21,7 +21,7 @@ my-workbench/
 
 工作台与**插件是两种东西，不要混用**：插件常驻 mini 条（preload 是 `window.dynamicIsland`），工作台右键小岛打开、独占整屏（preload 是 `window.workbench`）。工作台**没有** `island.alert / every / raf / media` 那套 API，也不要生成 `plugin.json`。
 
-安装方式：Activity Island 的「控制台管理 → 工作台 → 选择目录安装」；`.islandplugin` 包导入时宿主按包内清单（`workbench.json` / `plugin.json`）自动分流。**新装的工作台不自动启用**——用户要在详情里确认能力后点「启用」。
+安装方式：activity-Island-platform 的「控制台管理 → 工作台 → 选择目录安装」；`.islandplugin` 包导入时宿主按包内清单（`workbench.json` / `plugin.json`）自动分流。**新装的工作台不自动启用**——用户要在详情里确认能力后点「启用」。
 
 ## workbench.json
 

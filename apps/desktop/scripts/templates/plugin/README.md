@@ -1,6 +1,6 @@
 # __NAME__
 
-Activity Island 插件（由 `scripts/new-plugin.mjs` 从模板生成）。
+activity-Island-platform 插件（由 `scripts/new-plugin.mjs` 从模板生成）。
 
 ## 开发
 

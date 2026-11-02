@@ -40,6 +40,13 @@ import { LocalSendService } from './transfers/service'
 import { WorkbenchManager } from './workbench/workbench-manager'
 import type { PluginDescriptor, PluginManifest } from './plugins/types'
 
+// Keep existing profiles across the product/package rename; explicit test or
+// portable profiles remain untouched. This must precede all userData reads.
+if (app.getPath('userData') === path.join(app.getPath('appData'), app.getName())) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'dynamic-island-host'))
+}
+app.setName('activity-Island-platform')
+
 const CONTRACT_VERSION = 2
 const HOST_CAPABILITIES = ['media', 'process']
 
@@ -282,7 +289,7 @@ function refreshNotificationTrayHint(): void {
   const status = notificationModule.status()
   const windows = status.windows
   const windowsText = windows.access === 'allowed' ? '监听中' : windows.access === 'denied' ? '未授权' : windows.access === 'unspecified' ? '待授权' : '不可用'
-  tray.setToolTip(`Activity Island · 通知 ${windowsText} · 历史 ${status.totalRecords} 条`)
+  tray.setToolTip(`activity-Island-platform · 通知 ${windowsText} · 历史 ${status.totalRecords} 条`)
 }
 
 // Register domain adapters once runtime services and the host view are ready.
@@ -415,7 +422,7 @@ app.whenReady().then(async () => {
     onEvent: pluginsRuntime.emit,
     onContextMenu: () => { void island.enterCustomMode() },
   })
-  viewManager.setHostIdentity({ contractVersion: CONTRACT_VERSION, hostVersion: app.getVersion(), hostName: 'Activity Island', capabilities: HOST_CAPABILITIES })
+  viewManager.setHostIdentity({ contractVersion: CONTRACT_VERSION, hostVersion: app.getVersion(), hostName: 'activity-Island-platform', capabilities: HOST_CAPABILITIES })
   viewManager.setDeviceScaleFactor(screen.getPrimaryDisplay().scaleFactor)
   wireIpc()
   tray = createTray({
@@ -427,7 +434,7 @@ app.whenReady().then(async () => {
   transfers.registerIpc()
   transferService = new LocalSendService({
     baseDir: path.join(app.getPath('userData'), 'transfers'),
-    saveDirectory: path.join(app.getPath('downloads'), 'Activity Island'),
+    saveDirectory: path.join(app.getPath('downloads'), 'activity-Island-platform'),
   })
   transferService.on('change', snapshot => {
     if (transfers.view && !transfers.view.webContents.isDestroyed()) transfers.view.webContents.send('transfers:change', snapshot)

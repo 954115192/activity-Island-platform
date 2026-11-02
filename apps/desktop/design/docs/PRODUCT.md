@@ -1,6 +1,6 @@
 # 灵动岛 · 产品设计规格
 
-> Activity Island — Windows 桌面信息岛  
+> activity-Island-platform — Windows 桌面信息岛
 > 容器：小岛 / 中岛 / 大岛 / 右键工作台；内容由插件驱动；附 AI 聊天与设置。
 
 视觉规范见同目录上级 `DESIGN.md`。

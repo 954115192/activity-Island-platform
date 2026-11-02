@@ -16,7 +16,7 @@ export function createTray(options: TrayOptions): Tray {
     icon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1+jfqAAAAKElEQVR42mNkYPj/n4GBgYGBgQH+////PwMDAwMDAwMAAAAwAAH6C9D0AAAAASUVORK5CYII=')
   }
   const tray = new Tray(icon)
-  tray.setToolTip('Activity Island')
+  tray.setToolTip('activity-Island-platform')
   options.log('info', `已启动 v${app.getVersion()}${app.isPackaged ? '（安装版）' : '（源码运行）'} · assets=${path.dirname(options.iconPath)}`)
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '打开控制台管理', click: () => { options.openSettings() } },

@@ -1,4 +1,4 @@
-﻿; Activity Island 自定义 NSIS 卸载钩子（electron-builder 自动包含本文件）。
+﻿; activity-Island-platform 自定义 NSIS 卸载钩子（electron-builder 自动包含本文件）。
 ;
 ; 默认卸载保留用户数据（deleteAppDataOnUninstall: false）：插件、工作台、参数、日志
 ; 都在 %APPDATA%\dynamic-island-host，重装后继续可用。这里在卸载完程序后追加一次

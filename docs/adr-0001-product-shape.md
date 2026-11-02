@@ -6,7 +6,7 @@
 
 ## 决策
 
-Activity Island Platform 采用分层的跨设备产品架构：
+activity-Island-platform 采用分层的跨设备产品架构：
 
 - 桌面壳层呈现状态并承接简短操作。
 - 平台服务管理共享基础设施。

@@ -1,4 +1,4 @@
-# DESIGN.md — 灵动岛 Activity Island
+# DESIGN.md — 灵动岛 activity-Island-platform
 
 > Windows 桌面信息岛：四容器 + 插件驱动 + 工作台 + AI 开发。  
 > 本文件是品牌侧视觉/交互规范，跨界面复用；具体产品结构见 `docs/PRODUCT.md`。

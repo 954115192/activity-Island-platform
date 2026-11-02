@@ -32,7 +32,7 @@ export function createSettingsWindows(options: SettingsWindowsOptions) {
       minWidth: 900,
       minHeight: 560,
       frame: false,
-      title: 'Activity Island 控制台管理',
+      title: 'activity-Island-platform 控制台管理',
       backgroundColor: '#0b0d12',
       icon: options.resources.icon(),
       webPreferences: { preload: path.join(options.preloadDirectory, 'settings-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false },

@@ -1,5 +1,5 @@
 /**
- * Activity Island 插件 SDK —— 类型定义。
+ * activity-Island-platform 插件 SDK —— 类型定义。
  *
  * 运行时由宿主注入（`electron/preload/plugin-preload.ts` → `window.dynamicIsland`），
  * 插件是普通网页，不需要打包工具；本包只提供类型给 TS 作者。

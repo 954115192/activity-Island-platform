@@ -1,9 +1,9 @@
 ---
 name: island-plugin
-description: 为 Activity Island（Windows 桌面灵动岛，Electron 应用）生成网页插件。当用户想给灵动岛做插件（时钟、系统状态、媒体控制、通知桥接、番茄钟等）时使用：生成 plugin.json + dist/ 网页 + 可选 PowerShell 后台脚本，遵守三态尺寸与 Apple 风格视觉规范，并指导用户在岛上安装验证。
+description: 为 activity-Island-platform（Windows 桌面灵动岛，Electron 应用）生成网页插件。当用户想给灵动岛做插件（时钟、系统状态、媒体控制、通知桥接、番茄钟等）时使用：生成 plugin.json + dist/ 网页 + 可选 PowerShell 后台脚本，遵守三态尺寸与 Apple 风格视觉规范，并指导用户在岛上安装验证。
 ---
 
-# Activity Island 插件生成
+# activity-Island-platform 插件生成
 
 ## 任务与产物
 
@@ -19,7 +19,7 @@ my-plugin/
 └─ resources/           # 可选：后台脚本（PowerShell / Node）
 ```
 
-用户安装方式：Activity Island 的「控制台管理 → 插件 → 添加插件 → 选择文件夹安装」选中这个文件夹即可生效；之后改文件会自动热重载。全部完成后运行自检命令（见文末），并把安装步骤告诉用户。
+用户安装方式：activity-Island-platform 的「控制台管理 → 插件 → 添加插件 → 选择文件夹安装」选中这个文件夹即可生效；之后改文件会自动热重载。全部完成后运行自检命令（见文末），并把安装步骤告诉用户。
 
 ## plugin.json
 
@@ -226,11 +226,11 @@ $text = [IO.File]::ReadAllText($p, [Text.UTF8Encoding]::new($false))
 ## 自检与安装
 
 ```powershell
-# 自检（用户装了 Activity Island 时可用；检查宿主加载、运行期错误、日志）
+# 自检（用户装了 activity-Island-platform 时可用；检查宿主加载、运行期错误、日志）
 pwsh -File <仓库>\scripts\plugin-smoke.ps1 -PluginDir <插件目录>
 ```
 
 生成完成后告诉用户：
-1. 打开 Activity Island 的「控制台管理 → 插件」页，点「添加插件 → 选择文件夹安装」选中本插件文件夹
+1. 打开 activity-Island-platform 的「控制台管理 → 插件」页，点「添加插件 → 选择文件夹安装」选中本插件文件夹
 2. 之后改文件自动热重载，无需重新安装
 3. 分发：插件行右侧「⋯ → 导出插件包」生成 `.islandplugin`，对方在「插件 → 添加插件 → 导入插件包」直接装

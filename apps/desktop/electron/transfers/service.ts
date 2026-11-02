@@ -226,7 +226,7 @@ export class LocalSendService extends EventEmitter {
       this.identity = identity
     } catch {
       this.identity = await new Promise((resolve, reject) => selfsigned.generate(
-        [{ name: 'commonName', value: 'Activity Island' }],
+        [{ name: 'commonName', value: 'activity-Island-platform' }],
         { keySize: 2048, days: 3650, algorithm: 'sha256' },
         (error, result) => error ? reject(error) : resolve({ private: result.private, cert: result.cert }),
       ))
@@ -236,7 +236,7 @@ export class LocalSendService extends EventEmitter {
   }
 
   private info() {
-    return { alias: this.alias, version: '2.0', deviceModel: 'Activity Island · Windows', deviceType: 'desktop', fingerprint: this.fingerprint, port: this.port, protocol: 'https', download: false }
+    return { alias: this.alias, version: '2.0', deviceModel: 'activity-Island-platform · Windows', deviceType: 'desktop', fingerprint: this.fingerprint, port: this.port, protocol: 'https', download: false }
   }
 
   private async startDiscovery(): Promise<void> {

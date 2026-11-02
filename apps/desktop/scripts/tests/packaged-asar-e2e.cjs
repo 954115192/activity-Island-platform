@@ -94,7 +94,7 @@ async function main() {
   }
 
   // 4) 安装版本体与卸载器都在
-  check('主程序 exe 存在', fs.existsSync(path.join(UNPACKED, 'Activity Island.exe')))
+  check('主程序 exe 存在', fs.existsSync(path.join(UNPACKED, 'activity-Island-platform.exe')))
   const setup = fs.readdirSync(path.join(REPO, 'release')).find(name => name.endsWith('-setup.exe'))
   check('安装包 exe 存在', !!setup, setup ?? '没找到 *-setup.exe')
 

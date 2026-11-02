@@ -68,7 +68,7 @@ export class PluginViewManager {
   private workbenchStage: ViewBounds | null = null
   /** 非 null 时收起动画在跑：工作台视图随视口缩放（见 beginWorkbenchCollapse）。 */
   private workbenchCollapseStage: { width: number; height: number } | null = null
-  private host: HostIdentity = { contractVersion: 2, hostVersion: '0.0.0', hostName: 'Activity Island', capabilities: [] }
+  private host: HostIdentity = { contractVersion: 2, hostVersion: '0.0.0', hostName: 'activity-Island-platform', capabilities: [] }
   private deviceScaleFactor = 1
   private contractState: ContractState = { islandMode: 'idle', activePluginId: null, scale: 1 }
   private theme: ContractTheme | null = null

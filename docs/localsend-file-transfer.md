@@ -47,7 +47,7 @@ HTTPS 使用本机持久证书。发现的证书指纹用于后续连接校验�
 - 文件名拒绝目录穿越、Windows 保留名和替代数据流。接收前检查磁盘空间。
 - 文本限制为非空 UTF-8 内容，最多 64 KB；部分预览仍会在接受后上传完整正文并校验，完整预览不落盘。
 - 失败或取消清理活动临时文件；启动时清理超过一天的本功能临时文件。已完整收到的文件保留。
-- 保存位置默认为 `Downloads/Activity Island`，支持更改；本机名称可设置。
+- 保存位置默认为 `Downloads/activity-Island-platform`，支持更改；本机名称可设置。
 - 设备名与目录配置、证书、最近 50 条已结束传输摘要保存在 `userData/transfers/`。历史版本为 1；摘要包含文件名与设备名，默认不写入日志。证书私钥与会话令牌不返回页面，源绝对路径不进入历史。当前无按天自动删除摘要的策略，由数量上限控制。
 - LocalSend v2 基础协议未定义断点续传。本版中断后重新选择文件重试；不能把重试描述为断点续传。
 
@@ -64,8 +64,8 @@ HTTPS 使用本机持久证书。发现的证书指纹用于后续连接校验�
 ## 验证
 
 ```powershell
-npm run test:transfer --workspace dynamic-island-host
-npm run test:transfer-ui --workspace dynamic-island-host
+npm run test:transfer --workspace @activity-island-platform/desktop
+npm run test:transfer-ui --workspace @activity-island-platform/desktop
 npm run typecheck
 npm test
 ```

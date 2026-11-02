@@ -57,7 +57,7 @@ app.on('web-contents-created', (_event, contents) => {
   assert.equal(peer.snapshot().status, 'running')
   // 通过真实系统拖放对象从 preload 取得路径，而不是向渲染页暴露 Node。
   const source = path.join(root, '交互验收.txt')
-  await fs.writeFile(source, 'Activity Island LocalSend UI check')
+  await fs.writeFile(source, 'activity-Island-platform LocalSend UI check')
   await js('window.dynamicIslandHost.openTransfer()')
   await until(async () => (await js('window.dynamicIslandHost.getState()')).mode === 'custom')
   await ui(`window.islandTransfer.call('connect', ${JSON.stringify('127.0.0.1:' + peer.snapshot().port)})`)
@@ -105,7 +105,7 @@ app.on('web-contents-created', (_event, contents) => {
   await js('document.querySelector(".transfer-progress").click()')
   peer.accept(peer.snapshot().sessions[0].id)
   await until(async () => (await snapshot()).sessions.some(s => s.state === 'completed'))
-  assert.equal(await fs.readFile(path.join(root,'peer-files','交互验收.txt'),'utf8'), 'Activity Island LocalSend UI check')
+  assert.equal(await fs.readFile(path.join(root,'peer-files','交互验收.txt'),'utf8'), 'activity-Island-platform LocalSend UI check')
   // 接收端：外部端点请求自动展开接收卡片，点击拒绝可以结束任务。
   await peer.connect(`127.0.0.1:${initial.port}`)
   await peer.selectFiles([source])
@@ -137,7 +137,7 @@ app.on('web-contents-created', (_event, contents) => {
   await fs.writeFile(path.join(output, 'incoming-many.png'), (await view.capturePage()).toPNG())
   await ui('document.querySelector("[data-action=accept]").click()')
   await until(() => peer.snapshot().sessions[0].state === 'completed')
-  assert.equal(await fs.readFile(path.join(root,'received','交互验收.txt'),'utf8'), 'Activity Island LocalSend UI check')
+  assert.equal(await fs.readFile(path.join(root,'received','交互验收.txt'),'utf8'), 'activity-Island-platform LocalSend UI check')
   await until(() => ui('document.getElementById("current-task").innerText.includes("传输完成")'))
   await wait(200)
   await fs.writeFile(path.join(output, 'completed.png'), (await view.capturePage()).toPNG())

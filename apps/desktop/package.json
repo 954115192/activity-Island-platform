@@ -1,9 +1,10 @@
 {
-  "name": "dynamic-island-host",
+  "name": "@activity-island-platform/desktop",
+  "productName": "activity-Island-platform",
   "version": "0.2.1",
   "private": true,
-  "description": "独立 Web 插件驱动的 Windows Electron 灵动岛 Host",
-  "author": "Activity Island",
+  "description": "activity-Island-platform Windows 桌面应用",
+  "author": "activity-Island-platform",
   "license": "CC-BY-NC-4.0",
   "main": "dist-electron/main.js",
   "scripts": {

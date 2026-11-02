@@ -2,7 +2,7 @@
 
 ## 目标
 
-Dynamic Island Host 是独立插件 Web App 的统一显示终端，而不是插件组件库。
+activity-Island-platform 是独立插件 Web App 的统一显示终端，而不是插件组件库。
 
 ## View 模型
 

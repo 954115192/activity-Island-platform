@@ -1,4 +1,4 @@
-# Activity Island 产品演进与架构改造方案
+# activity-Island-platform 产品演进与架构改造方案
 
 > 文档状态：方案初稿
 >
@@ -6,7 +6,7 @@
 
 ## 1. 先做出的产品决策
 
-Activity Island 继续保留插件体系，但不再坚持“所有功能都必须由插件提供”。
+activity-Island-platform 继续保留插件体系，但不再坚持“所有功能都必须由插件提供”。
 
 后续采用四层模型：
 
@@ -77,7 +77,7 @@ Activity Island 继续保留插件体系，但不再坚持“所有功能都必�
 
 目标产品不是一个“插件展示器”，也不是一个完整的手机管家，而是：
 
-> **Activity Island 是 Windows 桌面上一个低打扰的信息入口和设备桥梁：把重要通知、手机状态、跨设备任务和用户自定义操作，统一呈现在一个可扩展的灵动岛中。**
+> **activity-Island-platform 是 Windows 桌面上一个低打扰的信息入口和设备桥梁：把重要通知、手机状态、跨设备任务和用户自定义操作，统一呈现在一个可扩展的灵动岛中。**
 
 它包含三种价值：
 
@@ -87,7 +87,7 @@ Activity Island 继续保留插件体系，但不再坚持“所有功能都必�
 
 ### 3.2 产品边界
 
-Activity Island 应该专注于“轻量、即时、跨设备”的信息与操作：
+activity-Island-platform 应该专注于“轻量、即时、跨设备”的信息与操作：
 
 - 适合：通知、传输进度、设备状态、媒体状态、任务结果、快捷动作。
 - 不适合：完整聊天、复杂文件管理、照片编辑、长时间表格操作、重型工作流。
@@ -301,7 +301,7 @@ island.events.on('transfer.updated', handler)
 
 ### 阶段 2：Windows 通知 MVP
 
-目标：先证明 Activity Island 能成为电脑通知入口。
+目标：先证明 activity-Island-platform 能成为电脑通知入口。
 
 第一版范围：
 

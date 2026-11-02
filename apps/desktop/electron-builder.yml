@@ -9,8 +9,8 @@
 #   nativeImage.createFromPath / Tray 对 asar 内的路径支持不稳定，
 #   图标是托盘与任务栏的关键，宁可放在 asar 外面。
 appId: com.activity-island.host
-productName: Activity Island
-copyright: Copyright © 2026 Activity Island
+productName: activity-Island-platform
+copyright: Copyright © 2026 activity-Island-platform
 
 directories:
   output: release
@@ -67,7 +67,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: Activity Island
+  shortcutName: activity-Island-platform
   # 卸载时保留用户数据（插件、日志、设置都在 %APPDATA%，不该被卸载删掉）
   deleteAppDataOnUninstall: false
   installerIcon: assets/icon.ico

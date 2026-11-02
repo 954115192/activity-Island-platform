@@ -1,6 +1,6 @@
-# Activity Island Platform
+# activity-Island-platform
 
-Activity Island Platform 是面向 Windows 电脑与手机的跨设备信息和操作平台。
+activity-Island-platform 是面向 Windows 电脑与手机的跨设备信息和操作平台。
 
 产品以桌面灵动岛作为主要展示入口，让用户快速看到通知、设备状态、传输进度和任务结果，并完成简短操作。手机配套应用提供另一端的连接与交互；平台服务负责连接、权限、事件路由和传输可靠性；官方模块提供开箱即用的核心功能；扩展支持个人工作流与外部服务接入。
 
@@ -70,4 +70,4 @@ tools/                    本地开发与发布工具
 
 Electron 业务模块通过 `electron/shared/platform.ts` 使用平台包。修改共享服务无需同步桌面副本。构建细节和本次检查的遗留问题见 [架构重构记录](docs/architecture-refactor-2026-11-01.md)。
 
-主进程各模块的职责、状态归属与调用关系见 [主进程代码导航](docs/main-process-structure.md)。退出生命周期可使用 `npm run test:shutdown --workspace dynamic-island-host` 单独验证。
+主进程各模块的职责、状态归属与调用关系见 [主进程代码导航](docs/main-process-structure.md)。退出生命周期可使用 `npm run test:shutdown --workspace @activity-island-platform/desktop` 单独验证。
