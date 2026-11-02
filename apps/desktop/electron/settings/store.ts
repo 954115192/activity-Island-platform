@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { BUILTIN_WORKBENCH_ID } from '../workbench/workbench-manager'
 
 export interface IslandSettings {
@@ -26,10 +27,14 @@ export function defaultIslandSettings(): IslandSettings { return { idleMode: 'fl
 /** Owns persisted settings; the value identity stays stable across loading. */
 export class SettingsStore {
   readonly value = defaultIslandSettings()
-  constructor(private readonly file: string) {}
+  constructor(
+    private readonly file: string,
+    private readonly reportError: (message: string, cause: unknown) => void = (message, cause) => console.warn(message, cause),
+  ) {}
   load(): void {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8')) as Partial<IslandSettings>
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('设置文件必须是 JSON 对象')
       Object.assign(this.value, {
         idleMode: parsed.idleMode === 'collapsed' ? 'collapsed' : 'float',
         islandTop: Number.isFinite(Number(parsed.islandTop)) ? Math.max(0, Math.min(200, Math.round(Number(parsed.islandTop)))) : 8,
@@ -50,12 +55,26 @@ export class SettingsStore {
             .map(([key, value]) => [key, (value as unknown[]).filter(item => typeof item === 'string') as string[]]))
           : {},
       })
-    } catch { /* first run uses defaults */ }
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException)?.code !== 'ENOENT') this.reportError('读取设置失败，保留当前设置', cause)
+    }
   }
 
   save(): void {
     fs.mkdirSync(path.dirname(this.file), { recursive: true })
-    fs.writeFileSync(this.file, JSON.stringify(this.value, null, 2), 'utf8')
+    const temporary = `${this.file}.${randomUUID()}.tmp`
+    let descriptor: number | undefined
+    try {
+      descriptor = fs.openSync(temporary, 'wx', 0o600)
+      fs.writeFileSync(descriptor, JSON.stringify(this.value, null, 2), 'utf8')
+      fs.fsyncSync(descriptor)
+      fs.closeSync(descriptor)
+      descriptor = undefined
+      fs.renameSync(temporary, this.file)
+    } finally {
+      if (descriptor !== undefined) fs.closeSync(descriptor)
+      fs.rmSync(temporary, { force: true })
+    }
   }
   snapshot(): IslandSettings {
     return { ...this.value, pluginOrder: [...this.value.pluginOrder], disabledPlugins: [...this.value.disabledPlugins], pluginModes: { ...this.value.pluginModes }, workbenchGrants: Object.fromEntries(Object.entries(this.value.workbenchGrants).map(([id, grants]) => [id, [...grants]])) }

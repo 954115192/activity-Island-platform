@@ -21,6 +21,7 @@ interface TransferPanelOptions {
   readonly notifications: ReturnType<typeof createNotificationWindows>
   appRoot(): string
   sendHost(channel: string, payload?: unknown): void
+  reportError(message: string): void
 }
 
 /** Owns transfer panel loading, drag state and the compact progress presentation. */
@@ -28,7 +29,12 @@ export function createTransferPanel(options: TransferPanelOptions) {
 
   let transferView: WebContentsView | null = null
 
-  let transferViewLoading: Promise<void> | null = null
+  let transferViewLoading: Promise<WebContentsView | null> | null = null
+  let viewReady = false
+  let disposed = false
+  let generation = 0
+  let opening: { generation: number; promise: Promise<void> } | null = null
+  let pendingRequest: TransferOpenRequest | undefined
 
   let transferPanelOpen = false
 
@@ -41,6 +47,9 @@ export function createTransferPanel(options: TransferPanelOptions) {
   let transferPanelSize = { width: 680, height: 620 }
 
   function hideTransferPanel(): void {
+    ++generation
+    opening = null
+    pendingRequest = undefined
     transferPanelOpen = false
     transferDragging = false
     if (transferDragTimer) clearTimeout(transferDragTimer)
@@ -80,14 +89,59 @@ export function createTransferPanel(options: TransferPanelOptions) {
 
   type TransferOpenRequest = { mode: 'files' | 'text'; text?: string }
 
-  async function openTransferPanel(request?: TransferOpenRequest): Promise<void> {
-    if (!options.hostWindow || !options.views) return
-    if (transferPanelOpen && transferViewLoading) {
-      await transferViewLoading
-      if (request) transferView?.webContents.send('transfers:open-mode', request)
-      return
+  function releaseView(view: WebContentsView): void {
+    if (transferView !== view) return
+    transferView = null
+    viewReady = false
+    if (options.hostWindow && !options.hostWindow.isDestroyed()) options.views?.adoptTransfer(null)
+    if (!view.webContents.isDestroyed()) view.webContents.close()
+  }
+
+  function ensureView(): Promise<WebContentsView | null> {
+    if (transferViewLoading) return transferViewLoading
+    if (transferView && viewReady && !transferView.webContents.isDestroyed()) return Promise.resolve(transferView)
+    const view = new WebContentsView({ webPreferences: {
+      preload: options.preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: false,
+    } })
+    transferView = view
+    viewReady = false
+    view.setBackgroundColor('#00000000')
+    view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    view.webContents.on('will-navigate', event => event.preventDefault())
+    options.views?.adoptTransfer(view)
+    const loading = Promise.resolve().then(async () => {
+      try {
+        if (disposed || transferView !== view || view.webContents.isDestroyed()) return null
+        await view.webContents.loadFile(path.join(options.appRoot(), 'modules', 'file-transfer', 'index.html'))
+        if (disposed || transferView !== view || view.webContents.isDestroyed()) return null
+        viewReady = true
+        return view
+      } catch (error) {
+        releaseView(view)
+        throw error
+      } finally {
+        if (transferViewLoading === loading) transferViewLoading = null
+      }
+    })
+    transferViewLoading = loading
+    return loading
+  }
+
+  function sendOpenMode(view: WebContentsView): void {
+    if (!pendingRequest) return
+    view.webContents.send('transfers:open-mode', pendingRequest)
+    pendingRequest = undefined
+  }
+
+  function openTransferPanel(request?: TransferOpenRequest): Promise<void> {
+    if (disposed || !options.hostWindow || options.hostWindow.isDestroyed() || !options.views) return Promise.resolve()
+    if (request) pendingRequest = request
+    if (opening && transferPanelOpen) return opening.promise
+    if (transferPanelOpen && transferView && viewReady && !transferView.webContents.isDestroyed()) {
+      transferView.webContents.send('transfers:change', options.service?.snapshot())
+      sendOpenMode(transferView)
+      return Promise.resolve()
     }
-    const wasOpen = transferPanelOpen
     transferPanelOpen = true
     transferProgressVisible = false
     options.sendHost('transfers:progress', null)
@@ -97,34 +151,33 @@ export function createTransferPanel(options: TransferPanelOptions) {
     options.island.clearAlertCarry()
     options.island.sendAlert(null)
     options.island.hideWorkbench()
-    if (wasOpen && transferView && !transferView.webContents.isDestroyed()) {
-      transferView.webContents.send('transfers:change', options.service?.snapshot())
-      if (request) transferView.webContents.send('transfers:open-mode', request)
-      return
-    }
     const serial = options.island.beginTransition()
-    if (!transferView || transferView.webContents.isDestroyed()) {
-      const view = new WebContentsView({ webPreferences: {
-        preload: options.preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: false,
-      } })
-      transferView = view
-      view.setBackgroundColor('#00000000')
-      view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-      view.webContents.on('will-navigate', event => event.preventDefault())
-      options.views.adoptTransfer(view)
-      transferViewLoading = view.webContents.loadFile(path.join(options.appRoot(), 'modules', 'file-transfer', 'index.html'))
-      try { await transferViewLoading } finally { transferViewLoading = null }
-    }
-    if (!transferPanelOpen || serial !== options.island.transitionSerial) return
-    const size = transferPanelSize
-    const stage = options.island.stageOrigin(size.width, size.height)
-    options.island.islandState.patch({ mode: 'custom', activePluginId: null, visiblePluginIds: [], sticky: true })
-    options.island.setHitRegion(options.island.stageHitRegion(stage, 28), false)
-    options.views.setTransferStage(stage)
-    options.island.sendLayout('custom', undefined, [], false, size, stage.y, [], size, true)
-    transferView?.webContents.send('transfers:change', options.service?.snapshot())
-    if (request) transferView?.webContents.send('transfers:open-mode', request)
-    options.layer.show()
+    const token = ++generation
+    const promise = Promise.resolve().then(async () => {
+      try {
+        const view = await ensureView()
+        if (!view || disposed || !transferPanelOpen || token !== generation || serial !== options.island.transitionSerial) return
+        const size = transferPanelSize
+        const stage = options.island.stageOrigin(size.width, size.height)
+        options.island.islandState.patch({ mode: 'custom', activePluginId: null, visiblePluginIds: [], sticky: true })
+        options.island.setHitRegion(options.island.stageHitRegion(stage, 28), false)
+        options.views?.setTransferStage(stage)
+        options.island.sendLayout('custom', undefined, [], false, size, stage.y, [], size, true)
+        view.webContents.send('transfers:change', options.service?.snapshot())
+        sendOpenMode(view)
+        options.layer.show()
+      } catch (error) {
+        if (disposed || token !== generation) return
+        transferPanelOpen = false
+        pendingRequest = undefined
+        options.reportError(`文件传输面板加载失败：${String(error)}`)
+        await options.island.showRest()
+      } finally {
+        if (opening?.generation === token) opening = null
+      }
+    })
+    opening = { generation: token, promise }
+    return promise
   }
 
   function installTransferIpc(): void {
@@ -148,6 +201,11 @@ export function createTransferPanel(options: TransferPanelOptions) {
     })
   }
   return {
+    dispose() {
+      disposed = true
+      hideTransferPanel()
+      if (transferView) releaseView(transferView)
+    },
     open: openTransferPanel,
     hide: hideTransferPanel,
     showProgress: showTransferProgress,

@@ -12,6 +12,7 @@ interface SettingsWindowsOptions {
   readonly views: PluginViewManager | null
   resources: ReturnType<typeof createAppResources>
   layer: ReturnType<typeof createWindowLayer>
+  reportError(message: string): void
 }
 
 /** Settings shell and its embedded custom plugin settings page. */
@@ -38,8 +39,10 @@ export function createSettingsWindows(options: SettingsWindowsOptions) {
     })
     settingsWindow = win
     options.layer.watch(win)
-    void win.loadFile(path.join(options.resources.root(), 'console-apps', 'settings', 'index.html'), tab ? { query: { tab } } : undefined)
-    win.on('closed', () => { settingsWindow = null; pluginPanel = null })
+    void win.loadFile(path.join(options.resources.root(), 'console-apps', 'settings', 'index.html'), tab ? { query: { tab } } : undefined).catch(error => {
+      if (!win.isDestroyed() && settingsWindow === win) options.reportError(`设置窗口加载失败：${String(error)}`)
+    })
+    win.on('closed', () => { closePluginPanel(); settingsWindow = null })
     win.on('resize', applyPluginPanelBounds)
     return win
   }
@@ -93,9 +96,15 @@ export function createSettingsWindows(options: SettingsWindowsOptions) {
     void view.webContents.loadFile(pagePath, { query: { pluginId } }).then(() => {
       // 面板不是岛上的插件视图，viewManager 的契约推送轮不到它；加载完手动补握手 + 可见性，
       // 让 island.ready / onVisible 正常工作。
-      if (pluginPanel?.view !== view || !options.views) return
+      if (pluginPanel?.view !== view || view.webContents.isDestroyed() || win.isDestroyed() || !options.views) return
       view.webContents.send('host:hello', options.views.helloPayloadFor(pluginId))
       view.webContents.send('host:visibility', { visible: true, reason: 'expanded', rendering: true })
+    }).catch(error => {
+      // Closing or replacing a panel cancels navigation intentionally. Only the
+      // currently requested, still-live panel can report a real load failure.
+      if (pluginPanel?.view !== view || view.webContents.isDestroyed() || win.isDestroyed()) return
+      closePluginPanel()
+      options.reportError(`插件「${pluginId}」设置页加载失败：${String(error)}`)
     })
     return { ok: true }
   }

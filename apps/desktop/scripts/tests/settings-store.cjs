@@ -11,7 +11,7 @@ function fixture(t, initial) {
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }))
   const file = path.join(directory, 'nested', 'settings.json')
   if (initial !== undefined) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(initial)) }
-  const store = new SettingsStore(file)
+  const store = new SettingsStore(file, () => {})
   const events = []
   const controller = new SettingsController(store, {
     pluginIds: () => ['a', 'b'],
@@ -73,4 +73,52 @@ test('failed system startup change does not save or broadcast a false success', 
   assert.equal(store.value.launchAtLogin, false)
   assert.equal(fs.existsSync(file), false)
   assert.deepEqual(events, [])
+})
+
+test('failed atomic replacement keeps the previous settings file readable', t => {
+  const { store, file } = fixture(t, { islandTop: 24 })
+  const before = fs.readFileSync(file, 'utf8')
+  store.value.islandTop = 96
+  const rename = fs.renameSync
+  t.mock.method(fs, 'renameSync', (source, target) => {
+    if (target === file) throw new Error('simulated file lock')
+    return rename(source, target)
+  })
+  assert.throws(() => store.save(), /simulated file lock/)
+  assert.equal(fs.readFileSync(file, 'utf8'), before)
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['settings.json'])
+  const recovered = new SettingsStore(file)
+  recovered.load()
+  assert.equal(recovered.value.islandTop, 24)
+})
+
+test('partial temporary write failure cannot truncate the live configuration', t => {
+  const { store, file } = fixture(t, { islandTop: 32 })
+  const before = fs.readFileSync(file, 'utf8')
+  const write = fs.writeFileSync
+  t.mock.method(fs, 'writeFileSync', (target, ...args) => {
+    if (typeof target === 'number') {
+      write(target, '{partial')
+      throw new Error('simulated disk failure')
+    }
+    return write(target, ...args)
+  })
+  assert.throws(() => store.save(), /simulated disk failure/)
+  assert.equal(fs.readFileSync(file, 'utf8'), before)
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['settings.json'])
+})
+
+test('missing settings are quiet but invalid configuration is reported without overwriting it', t => {
+  const { file } = fixture(t)
+  const errors = []
+  const store = new SettingsStore(file, (message, cause) => errors.push({ message, cause }))
+  store.load()
+  assert.equal(errors.length, 0)
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, '{broken')
+  store.value.islandTop = 48
+  store.load()
+  assert.equal(errors.length, 1)
+  assert.equal(store.value.islandTop, 48)
+  assert.equal(fs.readFileSync(file, 'utf8'), '{broken')
 })

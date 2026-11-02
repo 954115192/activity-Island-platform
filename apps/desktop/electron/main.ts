@@ -63,7 +63,8 @@ let quitRequested = false
 // Shared paths and persistent preferences.
 const resources = createAppResources((level, message) => pluginLogger?.append('_host', level, message))
 
-const settingsStore = new SettingsStore(path.join(app.getPath('userData'), 'settings.json'))
+const settingsStore = new SettingsStore(path.join(app.getPath('userData'), 'settings.json'),
+  (message, cause) => pluginLogger?.append('_host', 'warn', `${message}：${String(cause)}`))
 const islandSettings = settingsStore.value
 
 // Workbench identity, catalog and its reusable page.
@@ -111,6 +112,7 @@ const settingsUi = createSettingsWindows({
   get manager() { return pluginManager },
   get views() { return viewManager },
   resources, layer: windowLayer,
+  reportError: message => pluginLogger?.append('_host', 'error', message),
 })
 
 // Domain coordinators use live service getters; they do not start work here.
@@ -159,6 +161,7 @@ const transfers = createTransferPanel({
   get layer() { return windowLayer },
   get notifications() { return notificationWindows },
   appRoot: resources.root, sendHost,
+  reportError: message => pluginLogger?.append('_host', 'error', message),
 })
 
 const island = createIslandController({
@@ -242,6 +245,8 @@ function closeAppWindows(): void {
   if (hitPoll) { clearInterval(hitPoll); hitPoll = null }
   island.dispose()
   pluginsRuntime.reloader.dispose()
+  transfers.dispose()
+  workbenchRuntime.dispose()
   pluginWatcher?.close()
   backgroundManager?.stopAll()
   viewManager?.dispose()

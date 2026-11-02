@@ -1,8 +1,11 @@
-import { screen, type BrowserWindow } from 'electron'
+import { createIslandTransitions } from './transitions'
+import { createPluginCommands } from './plugin-commands'
+import { createIslandPointer } from './pointer'
+import type { BrowserWindow } from 'electron'
 import { IntentArbiter, type AlertLevel } from './intent-arbiter'
 import { IslandState } from './island-state'
 import { IslandLayoutManager } from './layout-manager'
-import { SMALL_DEFAULT, WINDOW_SIZE, MODE_DEFAULTS, pluginSize, pluginGeometry, compactLayout, compactLayoutWithQuickActions, type PluginPlacement, type AnimatedLayout } from './geometry'
+import { SMALL_DEFAULT, WINDOW_SIZE, pluginSize, pluginGeometry, compactLayout, compactLayoutWithQuickActions, type PluginPlacement, type AnimatedLayout } from './geometry'
 import { createWorkbenchSize } from '../workbench/size'
 import type { createWorkbenchView } from '../workbench/view'
 import type { createWindowLayer } from '../window/window-layer'
@@ -45,18 +48,6 @@ interface IslandOptions {
 /** Owns island interaction, transition timers and the rendered/native layout state. */
 export function createIslandController(options: IslandOptions) {
   let disposed = false
-
-  let collapseTimer: NodeJS.Timeout | null = null
-
-  let transitionSerial = 0
-
-  let hitInside = false
-
-  let idleHover = false
-
-  let compactHover = false
-
-  let openGraceUntil = 0
 
   /**
    * 收起动画期间的"延后切换"：中岛→mini 时先让收缩中的胶囊把旧内容裁掉，
@@ -112,15 +103,39 @@ export function createIslandController(options: IslandOptions) {
       alertActive = false
       // 点提醒展开的中岛/大岛要继承光圈（alertCarry）——此时不撤，等离开展开态再撤。
       if (!alertCarry) sendAlert(null)
-      void showRest(hitInside)
+      void showRest(pointer.inside)
     },
     canAlert: () => islandState.value.mode === 'idle' || islandState.value.mode === 'compact',
     grantFocus: request => grantFocus(request),
-    releaseFocus: () => { clearAlertCarry(); void showRest(hitInside) },
+    releaseFocus: () => { clearAlertCarry(); void showRest(pointer.inside) },
     sendIntent: (pluginId, message) => options.host.views?.sendIntent(pluginId, message),
   })
 
-  let hitRegion = { x: 0, y: 0, width: SMALL_DEFAULT.width, height: SMALL_DEFAULT.height, radius: 23, interactive: true }
+  const transitions = createIslandTransitions({
+    canScheduleCollapse: () => !islandState.value.sticky && !islandState.value.pointerInside && !alertActive
+      && (!options.plugins.ordered().length || options.settings.idleMode === 'collapsed'),
+    canCollapse: () => !islandState.value.pointerInside && islandState.value.mode === 'compact',
+    collapse: () => { void showIdle() },
+    hideWorkbench,
+  })
+  const cancelCollapse = transitions.cancelCollapse
+  const scheduleTransientCollapse = transitions.scheduleCollapse
+  const deferWorkbenchHide = transitions.deferWorkbenchHide
+  const cancelDeferredWorkbenchHide = transitions.cancelWorkbenchHide
+
+  const pointer = createIslandPointer({
+    get window() { return options.host.window },
+    get layer() { return options.host.layer },
+    get transferOpen() { return options.transfers.open },
+    get dragging() { return options.transfers.dragging },
+    get alertActive() { return alertActive },
+    settings: options.settings, state: islandState, arbiter,
+    send: options.host.send, cancelCollapse, scheduleTransientCollapse,
+    showCompact, showIdle,
+  })
+  const updateHitTest = pointer.update
+  const setHitRegion = pointer.setRegion
+  const stageHitRegion = pointer.stageRegion
 
   function syncPluginViews(frame = animatedFrame): void {
     if (disposed) return
@@ -173,7 +188,7 @@ export function createIslandController(options: IslandOptions) {
       options.transfers.progressVisible = false
       options.host.send('transfers:progress', null)
     }
-    const quickActions = bar.quickActions ?? (!options.transfers.progressVisible && !options.transfers.dragging && !alertActive && ((mode === 'idle' && idleHover) || (mode === 'compact' && compactHover)))
+    const quickActions = bar.quickActions ?? (!options.transfers.progressVisible && !options.transfers.dragging && !alertActive && ((mode === 'idle' && pointer.idleHover) || (mode === 'compact' && pointer.compactHover)))
     hostLayoutState = { mode, pluginMode, separators, collapsed, clipPlugins, showClock, quickActions, width: size.width, height: size.height, top, contentWidth: contentSize.width, overflow: bar.overflow ?? 0, chipX: bar.chipX ?? null }
     animatedLayout = { width: contentSize.width, height: contentSize.height, top: contentSize.top ?? top, placements, clipPlugins }
     if (syncPlugins) syncPluginViews()
@@ -198,7 +213,7 @@ export function createIslandController(options: IslandOptions) {
     const settled = Math.abs(animatedFrame.width - hostLayoutState.width) <= 2 && Math.abs(animatedFrame.height - hostLayoutState.height) <= 2
     // 收起进度到点（或弹簧到位）：先撤工作台内容（它叠在插件之上），剩下的交给空胶囊；
     // 再切插件 mini 内容（早切就是"内容先缩进岛里"）。
-    if (pendingWorkbenchHide && (animatedFrame.width <= pendingWorkbenchHide.belowWidth || settled)) hideWorkbench()
+    transitions.sample(animatedFrame.width, settled)
     if (pendingMiniReveal) {
       if (settled) applyPendingMiniReveal('frame')
     }
@@ -210,16 +225,16 @@ export function createIslandController(options: IslandOptions) {
     if (change === 'idle-mode') {
       if (state.mode === 'idle' || state.mode === 'compact') await showRest()
     } else if (change === 'top') {
-      if (state.mode === 'idle') await showIdle(idleHover)
-      else if (state.mode === 'compact') await showRest(hitInside)
+      if (state.mode === 'idle') await showIdle(pointer.idleHover)
+      else if (state.mode === 'compact') await showRest(pointer.inside)
       else if ((state.mode === 'expanded' || state.mode === 'detail') && state.activePluginId) {
         const plugin = options.plugins.get(state.activePluginId)
         if (plugin) await showActive(plugin, state.mode)
       } else if (state.mode === 'custom') await enterCustomMode()
     } else if (change === 'scale') {
-      if (state.mode === 'compact') await showRest(hitInside)
-      else if (state.mode === 'idle') await showIdle(idleHover)
-    } else if (state.mode === 'compact' && !alertActive) await showRest(hitInside)
+      if (state.mode === 'compact') await showRest(pointer.inside)
+      else if (state.mode === 'idle') await showIdle(pointer.idleHover)
+    } else if (state.mode === 'compact' && !alertActive) await showRest(pointer.inside)
   }
 
   /**
@@ -240,34 +255,8 @@ export function createIslandController(options: IslandOptions) {
     options.host.views?.setWorkbenchStage(null)
   }
 
-  /**
-   * 从工作台收回 mini 时的"延迟收尾"：立刻 `setVisible(false)` 会让控制台内容
-   * 在收缩动画的第一帧就整个消失，只剩空壳在缩。正确做法和插件的
-   * pendingMiniReveal 对称 —— 保留视图，让收缩中的原生裁剪窗把它逐帧裁掉。
-   * 但内容**不跟全程**：宽度收到 WORKBENCH_HIDE_PROGRESS 进度时就提前撤掉
-   * （弹簧收尾段最慢，内容缩到很小时还在磨蹭，反而生硬），剩下的完全交给
-   * 空胶囊的岛动画；900ms 超时兜底。工作台视图叠在插件之上，所以
-   * hideWorkbench 必须先于 applyPendingMiniReveal 执行（见 updatePluginAnimationFrame）。
-   */
-  let pendingWorkbenchHide: { timer: NodeJS.Timeout; belowWidth: number } | null = null
-
-  /** 收起宽度进度的隐藏点：0 = 一收就藏，1 = 收到最小才藏。 */
-  const WORKBENCH_HIDE_PROGRESS = 0.7
-
-  function deferWorkbenchHide(): void {
-    cancelDeferredWorkbenchHide()
-    const timer = setTimeout(() => { pendingWorkbenchHide = null; hideWorkbench() }, 900)
-    pendingWorkbenchHide = { timer, belowWidth: Number.POSITIVE_INFINITY }
-  }
-
-  /** 收起目标布局发出后调用：按起始/目标宽度算出提前撤内容的宽度阈值。 */
   function armWorkbenchHideThreshold(): void {
-    if (!pendingWorkbenchHide || !workbenchStage) return
-    pendingWorkbenchHide.belowWidth = workbenchStage.width + (hostLayoutState.width - workbenchStage.width) * WORKBENCH_HIDE_PROGRESS
-  }
-
-  function cancelDeferredWorkbenchHide(): void {
-    if (pendingWorkbenchHide) { clearTimeout(pendingWorkbenchHide.timer); pendingWorkbenchHide = null }
+    if (workbenchStage) transitions.armWorkbenchHide(workbenchStage.width, hostLayoutState.width)
   }
 
   /** True while the island console is actually on screen. */
@@ -297,11 +286,11 @@ export function createIslandController(options: IslandOptions) {
     options.host.views.endWorkbenchCollapse()
     // 控制台是最高优先级的"用户操作"：提醒与独占都让位（排队的提醒保留）。
     arbiter.interrupt()
-    idleHover = false
-    compactHover = false
-    const serial = ++transitionSerial
+    pointer.setHover('idle', false)
+    pointer.setHover('compact', false)
+    const serial = transitions.begin()
     const view = await options.workbench.ensure()
-    if (!view || serial !== transitionSerial) return
+    if (!view || serial !== transitions.serial) return
     for (const plugin of options.plugins.list()) options.host.views.hide(plugin.manifest.id)
     const { width, height } = workbenchSizing.current()
     const stage = stageOrigin(width, height, options.settings.islandTop)
@@ -316,140 +305,8 @@ export function createIslandController(options: IslandOptions) {
     // rect tracks the growing island and uncovers the console with it.
     sendLayout('custom', undefined, [], false, { width, height }, stage.y, [], { width, height }, true)
     await animateWindow(bounds)
-    if (serial !== transitionSerial) return
+    if (serial !== transitions.serial) return
     options.host.layer.show()
-  }
-
-  function roundedRectContains(x: number, y: number): boolean {
-    if (!options.host.window || options.host.window.isDestroyed() || !hitRegion.interactive) return false
-    const bounds = options.host.window.getBounds()
-    const localX = x - bounds.x
-    const localY = y - bounds.y
-    if (localX < hitRegion.x || localX > hitRegion.x + hitRegion.width || localY < hitRegion.y || localY > hitRegion.y + hitRegion.height) return false
-    const radius = Math.min(hitRegion.radius, hitRegion.width / 2, hitRegion.height / 2)
-    if (radius <= 0) return true
-    const left = localX < hitRegion.x + radius
-    const right = localX > hitRegion.x + hitRegion.width - radius
-    const top = localY < hitRegion.y + radius
-    const bottom = localY > hitRegion.y + hitRegion.height - radius
-    if (!(left || right) || !(top || bottom)) return true
-    const cx = left ? hitRegion.x + radius : hitRegion.x + hitRegion.width - radius
-    const cy = top ? hitRegion.y + radius : hitRegion.y + hitRegion.height - radius
-    return Math.hypot(localX - cx, localY - cy) <= radius
-  }
-
-  function updateHitTest(): void {
-    if (disposed) return
-    if (!options.host.window || options.host.window.isDestroyed() || options.host.layer.hidden) return
-    const point = screen.getCursorScreenPoint()
-    // Prefer the utility window only where it actually overlaps the cursor.
-    // The rest of the island remains clickable and stays above ordinary apps.
-    if (options.host.layer.contains(point)) {
-      if (hitInside) {
-        hitInside = false
-        islandState.patch({ pointerInside: false })
-        options.host.send('host:cursor', false)
-      }
-      options.host.window.setIgnoreMouseEvents(true, { forward: true })
-      return
-    }
-    const inside = roundedRectContains(point.x, point.y)
-    if (inside === hitInside) return
-    hitInside = inside
-    islandState.patch({ pointerInside: inside })
-    options.host.window.setIgnoreMouseEvents(!inside, { forward: true })
-    options.host.send('host:cursor', inside)
-    // 传输面板是用户任务；移出、拖动和普通通知均不能把接收确认或文件草稿自动收走。
-    if (options.transfers.open || options.transfers.dragging) return
-    if (inside) {
-      cancelCollapse()
-      const state = islandState.value
-      if (state.mode === 'expanded' || state.mode === 'detail' || state.mode === 'custom') islandState.patch({ sticky: false })
-      else if (state.mode === 'idle' && !idleHover) {
-        idleHover = true
-        // 收起模式：从触发条展开时直接把插件一起带出来。idle 是空胶囊（插件视图
-        // 被 1x1 裁剪窗藏住、但保持渲染），只有 compact 才把裁剪窗放开。
-        if (options.settings.idleMode === 'collapsed') { compactHover = true; void showCompact(true) }
-        else void showIdle(true)
-      } else if (state.mode === 'compact' && !compactHover) {
-        compactHover = true
-        void showCompact(true)
-      }
-      return
-    }
-
-    const state = islandState.value
-    if (state.mode !== 'compact' && state.mode !== 'idle') options.host.send('host:pointer-outside')
-    if (state.mode === 'expanded' || state.mode === 'detail') {
-      if (Date.now() < openGraceUntil) {
-        islandState.patch({ sticky: true })
-      } else if (!state.sticky) {
-        // releaseFocus() calls the host's single showRest() transition. A
-        // second showCompact() here used to race it and produce mini -> hover
-        // sized, which looked like the island shrank past its target and came
-        // back.
-        arbiter.releaseFocus('preempted')
-      }
-    } else if (state.mode === 'custom') {
-      void showCompact()
-    } else if (state.mode === 'idle') {
-      if (idleHover) void showIdle(false)
-    } else if (state.mode === 'compact') {
-      // 收起模式：鼠标一离开就缩回触发条；浮动模式仍留 3 秒窗口给插件活动。
-      // 提醒显示期间不收起——它的生命周期由 ttl 决定。
-      if (alertActive) return
-      if (options.settings.idleMode === 'collapsed' && !state.sticky) {
-        compactHover = false
-        void showIdle()
-      } else {
-        if (compactHover) {
-          compactHover = false
-          void showCompact(false)
-        }
-        scheduleTransientCollapse()
-      }
-    }
-  }
-
-  /**
-   * Hit region for an island stage. 收起模式下小岛是从贴顶的 64x8 触发条里长出来的，
-   * 所以热区必须把那条窄带一起包含进去：否则鼠标还停在触发条上（y < islandTop）时
-   * 会被判成"已移出"，展开态每 40ms 就被打回收起态，看起来就是来回抖。
-   */
-  function stageHitRegion(stage: { x: number; y: number; width: number; height: number }, radius: number): { x: number; y: number; width: number; height: number; radius: number } {
-    if (options.settings.idleMode !== 'collapsed') return { x: stage.x, y: stage.y, width: stage.width, height: stage.height, radius }
-    return { x: stage.x, y: 0, width: stage.width, height: stage.y + stage.height, radius: 4 }
-  }
-
-  function setHitRegion(region: { x: number; y: number; width: number; height: number; radius?: number; interactive?: boolean }, refresh = true): void {
-    if (![region.x, region.y, region.width, region.height].every(Number.isFinite)) return
-    hitRegion = {
-      x: Math.max(0, region.x), y: Math.max(0, region.y),
-      width: Math.max(0, region.width), height: Math.max(0, region.height),
-      radius: Math.max(0, region.radius ?? 0), interactive: region.interactive !== false,
-    }
-    // A transition changes the state before the native/renderer layout has
-    // committed. Refreshing synchronously here can re-enter updateHitTest while
-    // the cursor is already outside and start a second collapse in the same
-    // turn. The caller refreshes after the new layout is submitted.
-    if (refresh) updateHitTest()
-  }
-
-  function cancelCollapse(): void { if (collapseTimer) clearTimeout(collapseTimer); collapseTimer = null }
-
-  function scheduleTransientCollapse(): void {
-    cancelCollapse()
-    if (islandState.value.sticky || islandState.value.pointerInside) return
-    // 提醒自己带 ttl，别被活动计时器提前收掉。
-    if (alertActive) return
-    // 收起模式：常住插件("resident")也不能让小岛一直摊开，活动结束就回到触发条。
-    // 只有浮动模式才允许常住插件把内容长期留在岛上；自己声明"没内容"的插件不算常住。
-    const hasResident = options.plugins.ordered().length > 0
-    if (hasResident && options.settings.idleMode !== 'collapsed') return
-    collapseTimer = setTimeout(() => {
-      collapseTimer = null
-      if (!islandState.value.pointerInside && islandState.value.mode === 'compact') void showIdle()
-    }, 3000)
   }
 
   /**
@@ -484,7 +341,7 @@ export function createIslandController(options: IslandOptions) {
     // 档位与自定义颜色单独推给渲染层，岛壳据此画描边/光晕。不走 sendLayout：那条通道带 12 个位置参数
     // 和弹簧动画语义，塞进去会牵动动效路径。
     sendAlert(alert.level, alert.color)
-    await showCompact(hitInside, plugin, alert.width)
+    await showCompact(pointer.inside, plugin, alert.width)
   }
 
   /** 把当前提醒档位告诉岛壳；null 表示提醒已结束（撤掉描边光晕）。 */
@@ -546,16 +403,16 @@ export function createIslandController(options: IslandOptions) {
     if (options.transfers.open || options.transfers.dragging) return
     if (options.transfers.showProgress()) return
     if (!options.host.window || !options.host.views) return
-    // 悬停状态必须跟布局同步：否则鼠标离开后 idleHover 残留为 true，
-    // 下一次悬停触发条会被 `!idleHover` 挡住（表现为"悬停没反应/慢半拍"）。
-    idleHover = hovered
-    if (!hovered) compactHover = false
+    // 悬停状态必须跟布局同步：否则鼠标离开后 pointer.idleHover 残留为 true，
+    // 下一次悬停触发条会被 `!pointer.idleHover` 挡住（表现为"悬停没反应/慢半拍"）。
+    pointer.setHover('idle', hovered)
+    if (!hovered) pointer.setHover('compact', false)
     clearAlertCarry()
     clearPendingMiniReveal()
     cancelCollapse()
-    const serial = ++transitionSerial
-    idleHover = hovered
-    compactHover = false
+    const serial = transitions.begin()
+    pointer.setHover('idle', hovered)
+    pointer.setHover('compact', false)
     // 从工作台收回 mini 要走"吸入"（见 deferWorkbenchHide）：必须在下面的 patch 改模式前记下来。
     const fromConsole = islandState.value.mode === 'custom'
     // 插件视图不隐藏：它们保持可见、由 syncPluginViews 的 1x1 裁剪窗藏住，
@@ -582,7 +439,7 @@ export function createIslandController(options: IslandOptions) {
     sendLayout('idle', undefined, [], collapsed, size, stage.y, [], size, false, showClock)
     if (fromConsole) armWorkbenchHideThreshold()
     await animateWindow(bounds)
-    if (serial !== transitionSerial) return
+    if (serial !== transitions.serial) return
     options.host.layer.show()
     arbiter.noteIdle()
   }
@@ -593,10 +450,10 @@ export function createIslandController(options: IslandOptions) {
     if (!solo && options.transfers.showProgress()) return
     if (!options.host.window || !options.host.views) return
     cancelCollapse()
-    idleHover = false
+    pointer.setHover('idle', false)
     // Keep the hover flag authoritative instead of sticky: the collapse paths
     // decide on it, and it used to stay true after an event re-laid out the island.
-    compactHover = hovered
+    pointer.setHover('compact', hovered)
     const visible = solo ? [solo] : options.plugins.ordered()
     if (visible.length === 0) { await showIdle(); return }
 
@@ -652,13 +509,13 @@ export function createIslandController(options: IslandOptions) {
       return
     }
 
-    const serial = ++transitionSerial
+    const serial = transitions.begin()
     const { layout, quickActions } = hovered && !solo && !alertActive
       ? compactLayoutWithQuickActions(visible, scale, true)
       : { layout: compactLayout(visible, scale, { solo: !!solo, soloWidth }), quickActions: false }
     const { placements, separators, baseWidth, height, overflow, chipX } = layout
     for (const plugin of visible) await options.host.views.ensure(plugin)
-    if (serial !== transitionSerial) return
+    if (serial !== transitions.serial) return
     for (const plugin of visible) options.host.views.setZoom(plugin.manifest.id, scale)
     if (!solo) {
       compactScale = scale
@@ -700,14 +557,14 @@ export function createIslandController(options: IslandOptions) {
         if (collapsing || prewarmed) return
         options.host.views!.prepare(plugin.manifest.id, 'small', geometry)
         let ready = await options.host.views!.waitForModeReady(plugin.manifest.id, 'small', 1200)
-        if (!ready && serial === transitionSerial) {
+        if (!ready && serial === transitions.serial) {
           options.host.views!.prepare(plugin.manifest.id, 'small', geometry, { forceModeReady: true })
           ready = await options.host.views!.waitForModeReady(plugin.manifest.id, 'small', 1200)
         }
         if (!ready) options.host.logger?.append(plugin.manifest.id, 'warn', 'mini 布局切换未及时确认')
       }))
     }
-    if (serial !== transitionSerial) return
+    if (serial !== transitions.serial) return
     const stage = stageOrigin(width, windowHeight, top)
     islandState.patch({ mode: 'compact', activePluginId: null, visiblePluginIds: visible.map(item => item.manifest.id), sticky: false })
     setHitRegion(stageHitRegion(stage, 28 * scale), false)
@@ -723,7 +580,7 @@ export function createIslandController(options: IslandOptions) {
     sendLayout('compact', 'small', separators, false, { width, height: windowHeight }, stage.y, placements, { width: baseWidth, height, top }, true, false, true, { overflow, chipX, quickActions })
     if (fromConsole) armWorkbenchHideThreshold()
     await animateWindow(bounds)
-    if (serial !== transitionSerial) return
+    if (serial !== transitions.serial) return
     options.host.layer.show()
     scheduleTransientCollapse()
     // 岛回到 mini 了：排队中的提醒可以上岛。
@@ -737,7 +594,7 @@ export function createIslandController(options: IslandOptions) {
   async function applyPendingMiniReveal(reason: 'frame' | 'timeout'): Promise<void> {
     const pending = pendingMiniReveal
     if (!pending || !options.host.views) return
-    const serial = transitionSerial
+    const serial = transitions.serial
     clearPendingMiniReveal()
     for (const id of pending.ids) {
       const placement = pending.target.placements.find(item => item.pluginId === id)
@@ -749,13 +606,13 @@ export function createIslandController(options: IslandOptions) {
       // Keep the native view hidden until the page confirms that its small DOM
       // is active; otherwise the old medium title can be clipped into the mini bar.
       let ready = await options.host.views.waitForModeReady(id, 'small', 1200)
-      if (!ready && serial === transitionSerial && islandState.value.mode === 'compact') {
+      if (!ready && serial === transitions.serial && islandState.value.mode === 'compact') {
         // Re-send once for slow renderers. The preload acknowledges every mode
         // message, including one whose requested mode is already selected.
         options.host.views.prepare(id, 'small', bounds, { forceModeReady: true })
         ready = await options.host.views.waitForModeReady(id, 'small', 1200)
       }
-      if (serial !== transitionSerial || islandState.value.mode !== 'compact') return
+      if (serial !== transitions.serial || islandState.value.mode !== 'compact') return
       if (!ready) {
         options.host.views.hide(id)
         options.host.logger?.append(id, 'warn', 'mini 布局未及时就绪，已隐藏旧尺寸视图以避免内容错位')
@@ -779,12 +636,12 @@ export function createIslandController(options: IslandOptions) {
     if (alertCarry && alertCarryOwner !== plugin.manifest.id) clearAlertCarry()
     clearPendingMiniReveal()
     cancelCollapse()
-    idleHover = false
-    compactHover = false
+    pointer.setHover('idle', false)
+    pointer.setHover('compact', false)
     const pluginMode: PluginMode = mode === 'expanded' ? 'medium' : 'large'
-    const serial = ++transitionSerial
+    const serial = transitions.begin()
     await options.host.views.ensure(plugin)
-    if (serial !== transitionSerial) return
+    if (serial !== transitions.serial) return
     const size = pluginSize(plugin, pluginMode)
     const top = options.settings.islandTop
     const placement: PluginPlacement = { pluginId: plugin.manifest.id, x: 0, width: size.width, height: size.height }
@@ -795,13 +652,13 @@ export function createIslandController(options: IslandOptions) {
     // 否则 Chromium 合成器会丢掉这一次展开的首帧。冷页面才走隐藏等待握手。
     options.host.views.prepare(plugin.manifest.id, pluginMode, geometry, { preserveVisibility: options.host.views.isShown(plugin.manifest.id) })
     await options.host.views.waitForModeReady(plugin.manifest.id, pluginMode)
-    if (serial !== transitionSerial) return
+    if (serial !== transitions.serial) return
     for (const item of options.plugins.list()) if (item.manifest.id !== plugin.manifest.id) options.host.views.hide(item.manifest.id)
     hideWorkbench()
     const bounds = centerBounds(size.width, size.height, top)
     if (!bounds) return
     const stage = stageOrigin(size.width, size.height, top)
-    openGraceUntil = Date.now() + 400
+    pointer.holdOpen(400)
     islandState.patch({ mode, activePluginId: plugin.manifest.id, visiblePluginIds: [plugin.manifest.id], sticky: false })
     setHitRegion({ x: stage.x, y: stage.y, width: size.width, height: size.height, radius: 28 })
     // Defer the first native-view reveal to host:animation-frame. This keeps
@@ -809,110 +666,32 @@ export function createIslandController(options: IslandOptions) {
     // there is no large-left-edge flash before the medium-to-large animation.
     sendLayout(mode, pluginMode, [], false, size, stage.y, [placement], size, true, false, false)
     await animateWindow(bounds)
-    if (serial !== transitionSerial) return
-    hitInside = !roundedRectContains(screen.getCursorScreenPoint().x, screen.getCursorScreenPoint().y)
-    updateHitTest()
+    if (serial !== transitions.serial) return
+    pointer.recheck()
     options.host.layer.show()
   }
 
-  function handlePluginCommand(pluginId: string, command: string, args: unknown[]): void {
-    if (disposed) return
-    const plugin = options.plugins.get(pluginId)
-    if (!plugin) return
-    const state = islandState.value
-    if (command === 'ui:expand') {
-      // 用户点自己的 mini 段 → 用户操作优先，直接展开并登记独占。
-      if (state.mode === 'compact') {
-        if (plugin.manifest.medium) {
-          // 点的是正在显示的提醒 → 光圈跟随进中岛，离开展开态才撤。
-          const showing = arbiter.showingAlert()
-          alertCarry = !!showing && showing.pluginId === pluginId
-          alertCarryOwner = alertCarry ? pluginId : null
-          arbiter.claimFocus({ pluginId, view: 'medium', reason: 'user' })
-          void showActive(plugin, 'expanded')
-        }
-      } else if (state.mode === 'expanded' && state.activePluginId === pluginId && plugin.manifest.large) {
-        // 中岛升大岛：光圈继续跟随（若它正带着提醒光圈）。
-        arbiter.claimFocus({ pluginId, view: 'large', reason: 'user' })
-        void showActive(plugin, 'detail')
-      }
-    } else if (command === 'ui:collapse') {
-      // 回到 mini 段。
-      clearAlertCarry()
-      arbiter.releaseFocus('self', pluginId)
-      void showCompact()
-    } else if (command === 'ui:close') {
-      // "我这条显示结束"：先撤掉自己的提醒；否则按收起处理。
-      if (arbiter.dismissAlert(pluginId)) return
-      clearAlertCarry()
-      arbiter.releaseFocus('self', pluginId)
-      void showCompact()
-    } else if (command === 'alert') {
-      arbiter.requestAlert({ pluginId, ...(args[0] as object | undefined) })
-    } else if (command === 'focus') {
-      arbiter.requestFocus({ pluginId, ...(args[0] as object | undefined) })
-    } else if (command === 'tools:set') {
-      options.plugins.tools.update(pluginId, args[0], args[1])
-    } else if (command === 'ui:request-size' && state.activePluginId === pluginId && options.host.window) {
-      const requested = args[0] as { width?: number; height?: number } | undefined
-      if (!requested) return
-      const mode = state.mode === 'detail' ? 'large' : 'medium'
-      const declared = pluginSize(plugin, mode)
-      const configured = plugin.manifest[mode]
-      const defaults = MODE_DEFAULTS[mode]
-      const minWidth = Math.max(mode === 'large' ? 400 : 260, Number(configured?.minWidth) || 0)
-      const minHeight = Math.max(mode === 'large' ? 160 : 110, Number(configured?.minHeight) || 0)
-      const maxWidth = Math.min(mode === 'large' ? 1000 : 800, Math.max(minWidth, Number(configured?.maxWidth) || Infinity))
-      const maxHeight = Math.min(mode === 'large' ? 680 : 400, Math.max(minHeight, Number(configured?.maxHeight) || Infinity))
-      const width = Math.max(minWidth, Math.min(maxWidth, Math.round(requested.width ?? declared.width ?? defaults.width)))
-      const height = Math.max(minHeight, Math.min(maxHeight, Math.round(requested.height ?? declared.height ?? defaults.height)))
-      const stage = stageOrigin(width, height, options.settings.islandTop)
-      options.host.views?.setBounds(pluginId, { x: stage.x, y: stage.y, width, height })
-      setHitRegion({ x: stage.x, y: stage.y, width, height, radius: 30 })
-      sendLayout(state.mode, mode, [], false, { width, height }, stage.y)
-      const bounds = centerBounds(width, height)
-      if (bounds) void animateWindow(bounds, 260)
-    } else if (command === 'media:command') {
-      // 全局媒体键：任何播放器都认，插件不需要自己的后台脚本也能控制播放。
-      const action = args[0]
-      if (action === 'previous' || action === 'toggle' || action === 'next') {
-        options.mediaKey(action)
-        options.events.emit('media:command', { pluginId, action })
-      }
-    } else if (command === 'ui:presence') {
-      // 插件自报"我现在有没有内容"：false = 别占着 mini 条（例如没有正在播放的媒体）。
-      const present = args[0] !== false
-      if (present !== !options.plugins.hidden.has(pluginId)) {
-        if (present) options.plugins.hidden.delete(pluginId)
-        else options.plugins.hidden.add(pluginId)
-        if (!present) {
-          options.host.views?.hide(pluginId)
-          // 立刻让插件知道"你已经不在岛上了"，它的 island.every() 会自动暂停。
-          options.host.views?.publishContract({ islandMode: hostLayoutState.mode, activePluginId: islandState.value.activePluginId, scale: options.settings.miniScale })
-          // 正展开着它却被自己撤下 → 回到 mini 条，别留一个空白中岛。
-          if ((state.mode === 'expanded' || state.mode === 'detail') && state.activePluginId === pluginId) {
-            clearAlertCarry()
-            arbiter.releaseFocus('self', pluginId)
-            void showCompact(hitInside)
-            return
-          }
-        }
-        // 只有 mini 条正在显示时才重排；收起态（idle）不主动弹出来打扰用户。
-        // 例外是浮动模式：那条横条本来就该一直挂着，插件又有内容了就把条恢复出来。
-        if (islandState.value.mode === 'compact') void showCompact(compactHover)
-        else if (islandState.value.mode === 'idle' && options.settings.idleMode !== 'collapsed') void showCompact(false)
-      }
-    }
-  }
+  const handlePluginCommand = createPluginCommands({
+    get disposed() { return disposed },
+    get hostMode() { return hostLayoutState.mode },
+    host: options.host, settings: options.settings, state: islandState,
+    arbiter, pointer, plugins: options.plugins, events: options.events,
+    carryAlert(pluginId) {
+      const showing = arbiter.showingAlert()
+      alertCarry = !!showing && showing.pluginId === pluginId
+      alertCarryOwner = alertCarry ? pluginId : null
+    },
+    clearAlertCarry, showActive, showCompact, stageOrigin, setHitRegion,
+    sendLayout, centerBounds, animateWindow, mediaKey: options.mediaKey,
+  })
   return {
     dispose() {
       if (disposed) return
       disposed = true
-      ++transitionSerial
-      cancelCollapse()
+      transitions.dispose()
       clearPendingMiniReveal()
-      cancelDeferredWorkbenchHide()
       arbiter.dispose()
+      pointer.dispose()
     },
     get alertActive() { return alertActive },
     applySettingsLayout,
@@ -929,7 +708,7 @@ export function createIslandController(options: IslandOptions) {
     enterCustomMode,
     handlePluginCommand,
     hideWorkbench,
-    get hitInside() { return hitInside },
+    get hitInside() { return pointer.inside },
     attachWindow() {
       const win = options.host.window
       if (!win) return
@@ -937,16 +716,7 @@ export function createIslandController(options: IslandOptions) {
       islandLayout.apply(islandLayout.center(WINDOW_SIZE.width, WINDOW_SIZE.height, 0))
     },
     detachWindow() { islandLayout = null },
-    blur() {
-      hitInside = false
-      islandState.patch({ pointerInside: false })
-      options.host.send('host:blur')
-      const state = islandState.value
-      if ((state.mode === 'expanded' || state.mode === 'detail') && state.sticky) {
-        islandState.patch({ sticky: false })
-        arbiter.releaseFocus('preempted')
-      }
-    },
+    blur: pointer.blur,
     get islandState() { return islandState },
     sendAlert,
     sendLayout,
@@ -955,8 +725,8 @@ export function createIslandController(options: IslandOptions) {
     showRest,
     stageHitRegion,
     stageOrigin,
-    get transitionSerial() { return transitionSerial },
-    beginTransition() { return ++transitionSerial },
+    get transitionSerial() { return transitions.serial },
+    beginTransition() { return transitions.begin() },
     updateHitTest,
     updatePluginAnimationFrame,
     warmPluginViews,

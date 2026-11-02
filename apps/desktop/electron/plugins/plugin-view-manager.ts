@@ -410,8 +410,12 @@ export class PluginViewManager {
    * of the still-small island instead of being uncovered by the island's spring.
    * Pass `null` to detach a dead view.
    */
-  adoptTransfer(view: WebContentsView): void {
+  adoptTransfer(view: WebContentsView | null): void {
+    if (this.transferView === view) return
+    if (this.transferView && !this.window.isDestroyed()) this.viewport.removeChildView(this.transferView)
     this.transferView = view
+    this.transferStage = null
+    if (!view) return
     view.setVisible(false)
     this.viewport.addChildView(view)
   }
